@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "369229653252",
+    "project_id": "cob-fa-c962f",
+    "storage_bucket": "cob-fa-c962f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:369229653252:android:a7cfda902aadad97229c51",
+        "android_client_info": {
+          "package_name": "com.cobfa.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "369229653252-f59r53m24v4c1grqvec6dii0441893qe.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.cobfa.app",
+            "certificate_hash": "2fe5344c566a60101144d7cbb9305a580ab34391"
+          }
+        },
+        {
+          "client_id": "369229653252-f6k7r0pma35lpohvdjiivceb8agpr5j9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJPAm5AatX3P_HPef9NRSCt29ZaXkt01U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "369229653252-f6k7r0pma35lpohvdjiivceb8agpr5j9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
