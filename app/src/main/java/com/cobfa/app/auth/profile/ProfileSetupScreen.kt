@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.auth.link.AccountLinkViewModel
 import com.cobfa.app.auth.link.GoogleSignInHelper
+import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import java.util.*
 
@@ -38,6 +39,8 @@ fun ProfileSetupScreen(
 
     var age by rememberSaveable { mutableStateOf<Int?>(null) }
     var ageError by remember { mutableStateOf(false) }
+
+    var autoTrackingEnabled by rememberSaveable { mutableStateOf(false) }
 
     // Launcher for Google Sign-In
     val googleLauncher =
@@ -185,6 +188,11 @@ fun ProfileSetupScreen(
             onClick = {
                 Log.d("ProfileSetup", "Continue clicked, saving profile")
 
+                PreferenceManager.setAutoTrackingEnabled(
+                    context = context,
+                    enabled = autoTrackingEnabled
+                )
+
                 profileVm.saveProfile(
                     name = name,
                     dob = dob,
@@ -207,5 +215,17 @@ fun ProfileSetupScreen(
             Spacer(Modifier.height(16.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
         }
+    }
+
+    //SMS tracking permission
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text("Enable automatic expense tracking")
+        Switch(
+            checked = autoTrackingEnabled,
+            onCheckedChange = { autoTrackingEnabled = it }
+        )
     }
 }

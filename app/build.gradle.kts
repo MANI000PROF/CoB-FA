@@ -71,6 +71,7 @@ dependencies {
     // Firebase Auth
     implementation(libs.firebase.auth)
     implementation(libs.firebase.database)
+    implementation(libs.firebase.firestore)
 
     // Credentials / Google Sign-In (used later)
     implementation(libs.androidx.credentials)

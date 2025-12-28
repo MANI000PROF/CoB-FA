@@ -11,20 +11,29 @@ import com.cobfa.app.auth.phone.PhoneAuthScreen
 import com.cobfa.app.auth.phone.PhoneAuthViewModel
 import com.cobfa.app.auth.profile.ProfileSetupScreen
 import com.cobfa.app.dashboard.DashboardScreen
-import com.cobfa.app.navigation.AuthState
+import com.cobfa.app.launch.LaunchScreen
+import com.cobfa.app.ui.expense.list.ExpenseListScreen
+import com.cobfa.app.ui.expense.list.ExpenseListViewModelFactory
+import com.cobfa.app.ui.permission.SmsPermissionScreen
+import com.cobfa.app.utils.PreferenceManager
 
 @Composable
 fun AppNavigation() {
 
     val navController = rememberNavController()
 
-    val context = LocalContext.current
-    val start = AuthState.getStartDestination(context)
-
     NavHost(
         navController = navController,
-        startDestination = start
+        startDestination = "launch"
     ) {
+
+        composable("launch") {
+            LaunchScreen { route ->
+                navController.navigate(route) {
+                    popUpTo("launch") { inclusive = true }
+                }
+            }
+        }
 
         navigation(
             route = "auth",
@@ -51,12 +60,46 @@ fun AppNavigation() {
         }
 
         composable("profile") {
+            val context = LocalContext.current
+
             ProfileSetupScreen(
                 onProfileCompleted = {
-                    navController.navigate("dashboard") {
-                        popUpTo("profile") {
-                            inclusive = true
+                    val decided = PreferenceManager.isSmsPermissionDecided(context)
+
+                    if (decided) {
+                        navController.navigate("dashboard") {
+                            popUpTo("profile") { inclusive = true }
                         }
+                    } else {
+                        navController.navigate("sms_permission") {
+                            popUpTo("profile") { inclusive = true }
+                        }
+                    }
+                }
+            )
+        }
+
+
+        composable("sms_permission") {
+            val context = LocalContext.current
+
+            SmsPermissionScreen(
+                onPermissionGranted = {
+                    val pending = PreferenceManager.isPendingAutoTracking(context)
+                    if (pending) {
+                        PreferenceManager.setAutoTrackingEnabled(context, true)
+                        PreferenceManager.setPendingAutoTracking(context, false)
+                    }
+
+                    navController.navigate("dashboard") {
+                        popUpTo("sms_permission") { inclusive = true }
+                    }
+                },
+                onSkipClick = {
+                    PreferenceManager.markSmsPermissionSkipped(context)
+                    PreferenceManager.setPendingAutoTracking(context, false)
+                    navController.navigate("dashboard") {
+                        popUpTo("sms_permission") { inclusive = true }
                     }
                 }
             )
@@ -64,11 +107,22 @@ fun AppNavigation() {
 
         composable("dashboard") {
             DashboardScreen(
+                navController = navController,
                 onLogout = {
                     navController.navigate("auth") {
                         popUpTo(0)
                     }
                 }
+            )
+        }
+
+        composable("expenses") {
+            val context = LocalContext.current
+
+            ExpenseListScreen(
+                vm = viewModel(
+                    factory = ExpenseListViewModelFactory(context)
+                )
             )
         }
     }
