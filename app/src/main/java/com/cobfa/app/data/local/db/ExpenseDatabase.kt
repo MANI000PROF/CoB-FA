@@ -5,14 +5,17 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.cobfa.app.data.local.dao.ExpenseDao
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.data.local.db.Converters
+import com.google.firebase.BuildConfig
 
 @Database(
     entities = [ExpenseEntity::class],
     version = 2,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class ExpenseDatabase : RoomDatabase() {
@@ -30,10 +33,26 @@ abstract class ExpenseDatabase : RoomDatabase() {
                     ExpenseDatabase::class.java,
                     "cobfa_expense_db"
                 )
-                    .fallbackToDestructiveMigration()
+                    // ✅ Add explicit migrations
+                    .addMigrations(
+                        MIGRATION_1_2
+                    )
+                    // ✅ Only use destructive fallback in DEBUG
+                    .apply {
+                        if (BuildConfig.DEBUG) {
+                            fallbackToDestructiveMigration()
+                        }
+                    }
                     .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+        // ✅ Define migration from v1 to v2
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // No schema changes between v1 and v2, so this is a no-op.
+                // Add actual migration SQL here if schema changes in future.
             }
         }
     }

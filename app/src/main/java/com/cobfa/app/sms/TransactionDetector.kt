@@ -24,7 +24,7 @@ object TransactionDetector {
             Log.d(TAG, "Fallback validation used for sender=$sender")
         }
 
-        val hashInput = "$sender|$body|$timestamp"
+        val hashInput = "$sender|$body"
         val smsHash = sha256(hashInput)
 
         Log.d(TAG, "Transaction validated hash=$smsHash")

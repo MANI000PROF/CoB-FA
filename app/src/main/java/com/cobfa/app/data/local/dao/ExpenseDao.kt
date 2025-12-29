@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ExpenseDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertExpense(expense: ExpenseEntity)
 
     @Delete
@@ -36,29 +36,32 @@ interface ExpenseDao {
     suspend fun updateStatus(id: Long, status: ExpenseStatus)
 
     @Query("UPDATE expenses SET status = :status, category = :category WHERE id = :id")
-    suspend fun confirmExpense(id: Long, category: String?, status: String)
+    suspend fun confirmExpense(id: Long, category: ExpenseCategory, status: ExpenseStatus)
 
     @Query("SELECT * FROM expenses WHERE timestamp BETWEEN :start AND :end AND status = 'CONFIRMED'")
     suspend fun getExpensesBetween(start: Long, end: Long): List<ExpenseEntity>
 
-    @Query(
-        """
+    @Query("""
     SELECT
         :start AS monthStart,
-        IFNULL(SUM(CASE WHEN type = 'CREDIT' THEN amount ELSE 0 END), 0) AS income,
-        IFNULL(SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END), 0) AS expense,
+        IFNULL(SUM(CASE WHEN type = 'CREDIT' AND status = 'CONFIRMED' THEN amount ELSE 0 END), 0) AS income,
+        IFNULL(SUM(CASE WHEN type = 'DEBIT' AND status = 'CONFIRMED' THEN amount ELSE 0 END), 0) AS expense,
         IFNULL(
-            SUM(CASE WHEN type = 'CREDIT' THEN amount ELSE 0 END), 0
+            SUM(CASE WHEN type = 'CREDIT' AND status = 'CONFIRMED' THEN amount ELSE 0 END), 0
         ) -
         IFNULL(
-            SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END), 0
+            SUM(CASE WHEN type = 'DEBIT' AND status = 'CONFIRMED' THEN amount ELSE 0 END), 0
         ) AS balance
     FROM expenses
-    WHERE timestamp BETWEEN :start AND :end
-"""
-    )
+    WHERE timestamp BETWEEN :start AND :end AND status = 'CONFIRMED'
+""")
     fun observeMonthlySummary(
         start: Long,
         end: Long
     ): Flow<MonthlySummary>
+
+    // ADD THIS METHOD to ExpenseDao
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    suspend fun getExpenseById(id: Long): ExpenseEntity?
+
 }

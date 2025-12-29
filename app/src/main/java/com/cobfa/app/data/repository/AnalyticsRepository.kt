@@ -3,6 +3,7 @@ package com.cobfa.app.data.repository
 import com.cobfa.app.data.local.dao.ExpenseDao
 import com.cobfa.app.domain.model.ExpenseType
 import com.cobfa.app.domain.model.MonthlySummary
+import kotlinx.coroutines.flow.Flow
 
 class AnalyticsRepository(
     private val expenseDao: ExpenseDao
@@ -28,5 +29,9 @@ class AnalyticsRepository(
             income = income,
             expense = expense
         )
+    }
+
+    fun observeMonthlySummary(start: Long, end: Long): Flow<MonthlySummary> {
+        return expenseDao.observeMonthlySummary(start, end)
     }
 }

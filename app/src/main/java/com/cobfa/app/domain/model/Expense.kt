@@ -9,5 +9,6 @@ data class Expense(
     val timestamp: Long,
     val source: ExpenseSource,
     val status: ExpenseStatus,
-    val createdAt: Long
+    val createdAt: Long,
+    val smsHash: String
 )

@@ -1,50 +1,63 @@
 package com.cobfa.app.sms
 
-import android.content.Context
 import android.util.Log
-import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.domain.model.ExpenseStatus
 import com.cobfa.app.domain.model.ExpenseType
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.cobfa.app.utils.ExpenseLogger
 
 object SmsProcessor {
 
     private const val TAG = "SMS_PROCESSOR"
 
-    fun process(
-        context: Context,
+    /**
+     * Process SMS with deduplication check.
+     *
+     * @param sender SMS sender address
+     * @param body SMS body text
+     * @param timestamp SMS timestamp (milliseconds)
+     * @param repo ExpenseRepository instance (pass to avoid creating new DB connections)
+     *
+     * @return true if expense was inserted, false if skipped (filtered or duplicate)
+     */
+    suspend fun processWithDedup(
         sender: String?,
         body: String,
-        timestamp: Long
-    ) {
+        timestamp: Long,
+        repo: ExpenseRepository
+    ): Boolean {
+
         val expense = TransactionDetector.detect(sender, body, timestamp)
-            ?: return
+            ?: return false
 
-        CoroutineScope(Dispatchers.IO).launch {
-            val db = ExpenseDatabase.getInstance(context)
-            val repo = ExpenseRepository(db.expenseDao())
+        val smsHash = expense.smsHash ?: return false
 
-            val finalExpense =
-                if (expense.type == ExpenseType.CREDIT) {
-                    expense.copy(
-                        status = ExpenseStatus.CONFIRMED,
-                        category = null
-                    )
-                } else {
-                    expense.copy(
-                        status = ExpenseStatus.PENDING
-                    )
-                }
+        // ✅ Pre-flight check
+        if (repo.existsBySmsHash(smsHash)) {
+            ExpenseLogger.logSmsDuplicate(smsHash)
+            return false
+        }
 
-            try {
-                repo.insertExpense(finalExpense)
-                Log.d(TAG, "Expense saved to DB")
-            } catch (e: Exception) {
-                Log.d(TAG, "Duplicate SMS ignored by DB")
-            }
+        // ✅ Prepare final expense
+        val finalExpense = if (expense.type == ExpenseType.CREDIT) {
+            expense.copy(status = ExpenseStatus.CONFIRMED, category = null)
+        } else {
+            expense.copy(status = ExpenseStatus.PENDING)
+        }
+
+        // ✅ Insert with proper logging
+        return try {
+            repo.insertExpense(finalExpense)
+            ExpenseLogger.logSmsInserted(
+                smsHash,
+                finalExpense.amount,
+                finalExpense.type.name,
+                finalExpense.status.name
+            )
+            true
+        } catch (e: Exception) {
+            ExpenseLogger.logSmsInsertError(smsHash, e.message ?: "Unknown error")
+            false
         }
     }
 }
