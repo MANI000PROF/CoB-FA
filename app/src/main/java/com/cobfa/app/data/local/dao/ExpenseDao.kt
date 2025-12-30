@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.Flow
 interface ExpenseDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertExpense(expense: ExpenseEntity)
+    suspend fun insertExpense(expense: ExpenseEntity): Long
 
     @Delete
     suspend fun deleteExpense(expense: ExpenseEntity)

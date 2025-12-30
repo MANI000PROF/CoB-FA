@@ -1,8 +1,10 @@
 package com.cobfa.app.dashboard
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cobfa.app.data.repository.AnalyticsRepository
+import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.utils.ExpenseLogger
 import kotlinx.coroutines.delay
@@ -14,7 +16,8 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 class DashboardViewModel(
-    private val analyticsRepo: AnalyticsRepository
+    private val analyticsRepo: AnalyticsRepository,
+    private val syncManager: SyncManager
 ) : ViewModel() {
 
     val summary: StateFlow<MonthlySummary?> = analyticsRepo
@@ -37,6 +40,11 @@ class DashboardViewModel(
 
     // ✅ NEW: Periodic background scanning (10s interval)
     init {
+        viewModelScope.launch {
+            Log.d("DASHBOARD_VM", "Starting Firestore restore on app launch")
+            syncManager.restoreFromFirestore()
+            Log.d("DASHBOARD_VM", "Firestore restore completed")
+        }
         startPeriodicSmsScanning()
     }
 
@@ -45,9 +53,9 @@ class DashboardViewModel(
      */
     fun refreshSms() {
         viewModelScope.launch {
-            android.util.Log.d("REFRESH_DEBUG", "refreshSms() called")
+            Log.d("REFRESH_DEBUG", "refreshSms() called")
             _isRefreshing.value = true
-            android.util.Log.d("REFRESH_DEBUG", "isRefreshing set to TRUE")
+            Log.d("REFRESH_DEBUG", "isRefreshing set to TRUE")
 
             try {
                 ExpenseLogger.logValidationFailed(
@@ -55,16 +63,16 @@ class DashboardViewModel(
                     "manual",
                     "User triggered pull-to-refresh"
                 )
-                android.util.Log.d("REFRESH_DEBUG", "Calling onRefreshRequest()")
+                Log.d("REFRESH_DEBUG", "Calling onRefreshRequest()")
                 // Call the SMS scan function from UI layer
                 onRefreshRequest()
-                android.util.Log.d("REFRESH_DEBUG", "onRefreshRequest() completed")
+                Log.d("REFRESH_DEBUG", "onRefreshRequest() completed")
             } catch (e: Exception) {
                 android.util.Log.e("REFRESH_DEBUG", "Error in refreshSms: ${e.message}")
                 ExpenseLogger.logDatabaseError("refreshSms", e.message ?: "Unknown error")
             } finally {
                 _isRefreshing.value = false
-                android.util.Log.d("REFRESH_DEBUG", "isRefreshing set to FALSE")
+                Log.d("REFRESH_DEBUG", "isRefreshing set to FALSE")
             }
         }
     }

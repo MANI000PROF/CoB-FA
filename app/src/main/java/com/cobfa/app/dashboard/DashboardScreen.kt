@@ -20,7 +20,9 @@ import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.cobfa.app.data.local.db.ExpenseDatabase
+import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.data.repository.ExpenseRepository
+import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.sms.SmsFilters
 import com.cobfa.app.sms.SmsInboxReader
 import com.cobfa.app.sms.SmsProcessor
@@ -40,8 +42,14 @@ fun DashboardScreen(
 
     val db = remember { ExpenseDatabase.getInstance(context) }
 
+    // ✅ Create syncManager once
+    val firestoreService = remember { FirestoreService() }
+    val syncManager = remember { SyncManager(db, firestoreService) }
+
     val pendingVm = remember {
-        PendingExpensesViewModel(ExpenseRepository(db.expenseDao()))
+        PendingExpensesViewModel(
+            ExpenseRepository(db.expenseDao(), syncManager)  // ✅ Pass syncManager
+        )
     }
 
     val vm: DashboardViewModel = viewModel(
@@ -147,6 +155,56 @@ fun DashboardScreen(
     }
 }
 
+private suspend fun performSmsScan(
+    context: android.content.Context,
+    db: ExpenseDatabase
+) {
+    val granted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.READ_SMS
+    ) == PackageManager.PERMISSION_GRANTED
+
+    if (!granted) {
+        ExpenseLogger.logValidationFailed("permission", "READ_SMS", "not granted")
+        return
+    }
+
+    ExpenseLogger.logScanStart("DashboardScreen")
+
+    val firestoreService = FirestoreService()  // ✅ NEW
+    val syncManager = SyncManager(db, firestoreService)  // ✅ NEW
+
+    val repo = ExpenseRepository(db.expenseDao(), syncManager)
+    val messages = SmsInboxReader.readRecentSms(context, limit = 50)
+    ExpenseLogger.logSmsRead(messages.size)
+
+    var processedCount = 0
+    var skippedCount = 0
+
+    for (sms in messages) {
+        if (SmsFilters.isBlocked(sms.body)) {
+            skippedCount++
+            continue
+        }
+
+        val inserted = SmsProcessor.processWithDedup(
+            sender = sms.address,
+            body = sms.body,
+            timestamp = sms.timestamp,
+            repo = repo,
+            syncManager = syncManager
+        )
+
+        if (inserted) {
+            processedCount++
+        } else {
+            skippedCount++
+        }
+    }
+
+    ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
+}
+
 @Composable
 private fun AutoTrackingToggle(
     autoTracking: Boolean,
@@ -238,52 +296,6 @@ private fun ActionButtons(
             Text("View Expenses")
         }
     }
-}
-
-private suspend fun performSmsScan(
-    context: android.content.Context,
-    db: com.cobfa.app.data.local.db.ExpenseDatabase
-) {
-    val granted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_SMS
-    ) == PackageManager.PERMISSION_GRANTED
-
-    if (!granted) {
-        ExpenseLogger.logValidationFailed("permission", "READ_SMS", "not granted")
-        return
-    }
-
-    ExpenseLogger.logScanStart("DashboardScreen")
-
-    val repo = ExpenseRepository(db.expenseDao())
-    val messages = SmsInboxReader.readRecentSms(context, limit = 50)
-    ExpenseLogger.logSmsRead(messages.size)
-
-    var processedCount = 0
-    var skippedCount = 0
-
-    for (sms in messages) {
-        if (SmsFilters.isBlocked(sms.body)) {
-            skippedCount++
-            continue
-        }
-
-        val inserted = SmsProcessor.processWithDedup(
-            sender = sms.address,
-            body = sms.body,
-            timestamp = sms.timestamp,
-            repo = repo
-        )
-
-        if (inserted) {
-            processedCount++
-        } else {
-            skippedCount++
-        }
-    }
-
-    ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
 }
 
 // ✅ SCROLLABLE: Pending expenses with LazyColumn

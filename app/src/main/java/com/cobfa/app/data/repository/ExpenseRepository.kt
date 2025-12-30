@@ -10,11 +10,12 @@ import com.cobfa.app.utils.ExpenseLogger
 import kotlinx.coroutines.flow.Flow
 
 class ExpenseRepository(
-    private val expenseDao: ExpenseDao
+    private val expenseDao: ExpenseDao,
+    private val syncManager: SyncManager? = null
 ) {
 
-    suspend fun insertExpense(expense: ExpenseEntity) {
-        expenseDao.insertExpense(expense)
+    suspend fun insertExpense(expense: ExpenseEntity): Long {
+        return expenseDao.insertExpense(expense)
     }
 
     suspend fun deleteExpense(expense: ExpenseEntity) {
@@ -41,12 +42,16 @@ class ExpenseRepository(
             confirmExpenseAtomic(id, category)
 
             ExpenseLogger.logConfirmationComplete(id, category.name, ExpenseStatus.CONFIRMED.name)
-            Log.d("CONFIRM", "Transaction committed, Flow should emit now")
+
+            // ✅ NEW: Sync to Firestore immediately after confirmation
+            syncManager?.syncConfirmedExpense(id)
+
         } catch (e: Exception) {
             ExpenseLogger.logConfirmationError(id, e.message ?: "Unknown error")
             throw e
         }
     }
+
 
     /**
      * Atomically confirm an expense.
