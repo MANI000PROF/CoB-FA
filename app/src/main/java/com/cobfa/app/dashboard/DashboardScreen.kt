@@ -26,6 +26,7 @@ import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.sms.SmsFilters
 import com.cobfa.app.sms.SmsInboxReader
 import com.cobfa.app.sms.SmsProcessor
+import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
 import com.cobfa.app.utils.ExpenseLogger
 
@@ -58,6 +59,7 @@ fun DashboardScreen(
 
     val summary by vm.summary.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
+    var showManualDialog by remember { mutableStateOf(false) }
 
     // ✅ Setup SMS scanning callback once
     LaunchedEffect(Unit) {
@@ -149,8 +151,18 @@ fun DashboardScreen(
                 },
                 onViewExpenses = {
                     navController.navigate("expenses")
+                },
+                onAddExpense = {
+                    showManualDialog = true
                 }
             )
+            if (showManualDialog) {
+                ManualExpenseDialog(
+                    onDismiss = { showManualDialog = false },
+                    db = db,
+                    syncManager = syncManager
+                )
+            }
         }
     }
 }
@@ -276,10 +288,20 @@ private fun SummarySectionCards(summary: com.cobfa.app.domain.model.MonthlySumma
 
 @Composable
 private fun ActionButtons(
+    onAddExpense: () -> Unit,
     onLogout: () -> Unit,
     onViewExpenses: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onAddExpense
+        ) {
+            Text("Add Expense")
+        }
+
+        Spacer(Modifier.height(12.dp))
+
         Button(
             modifier = Modifier.fillMaxWidth(),
             onClick = onLogout
