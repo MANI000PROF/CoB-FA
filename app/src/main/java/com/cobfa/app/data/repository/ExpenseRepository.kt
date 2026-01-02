@@ -93,5 +93,17 @@ class ExpenseRepository(
         return expenseDao.getExpensesByStatus(ExpenseStatus.CONFIRMED)
     }
 
+    /**
+     * Get total DEBIT spending for a category within date range.
+     * Used for budget progress calculation.
+     */
+    suspend fun getSpentAmountByCategory(
+        category: ExpenseCategory,
+        start: Long,
+        end: Long
+    ): Double {
+        return expenseDao.getSpentAmountByCategory(category, start, end)
+    }
+
 
 }

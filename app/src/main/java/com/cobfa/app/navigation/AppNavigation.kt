@@ -12,6 +12,7 @@ import com.cobfa.app.auth.phone.PhoneAuthViewModel
 import com.cobfa.app.auth.profile.ProfileSetupScreen
 import com.cobfa.app.dashboard.DashboardScreen
 import com.cobfa.app.launch.LaunchScreen
+import com.cobfa.app.ui.budget.BudgetScreen
 import com.cobfa.app.ui.expense.list.ExpenseListScreen
 import com.cobfa.app.ui.expense.list.ExpenseListViewModelFactory
 import com.cobfa.app.ui.permission.SmsPermissionScreen
@@ -125,6 +126,11 @@ fun AppNavigation() {
                 )
             )
         }
+
+        composable("budgets") {
+            BudgetScreen()
+        }
+
     }
 
 }

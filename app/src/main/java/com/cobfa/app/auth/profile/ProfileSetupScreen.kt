@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.auth.link.AccountLinkViewModel
@@ -30,11 +32,14 @@ fun ProfileSetupScreen(
     val context = LocalContext.current
     val activity = context as Activity
     val linkVm: AccountLinkViewModel = viewModel()
+    val focusManager = LocalFocusManager.current
 
     val profileVm: ProfileViewModel = viewModel()
 
     var googleLinked by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(""))
+    }
     var dob by rememberSaveable { mutableStateOf("") }
 
     var age by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -57,11 +62,13 @@ fun ProfileSetupScreen(
                         googleLinked = true
                         val user = FirebaseAuth.getInstance().currentUser
                         // Try multiple safe sources
-                        name = when {
-                            !user?.displayName.isNullOrBlank() -> user?.displayName!!
-                            !user?.email.isNullOrBlank() -> user?.email!!.substringBefore("@")
-                            else -> ""
-                        }
+                        name = TextFieldValue(
+                            when {
+                                !user?.displayName.isNullOrBlank() -> user?.displayName!!
+                                !user?.email.isNullOrBlank() -> user?.email!!.substringBefore("@")
+                                else -> ""
+                            }
+                        )
                     }
                 },
                 onError = { error ->
@@ -133,10 +140,13 @@ fun ProfileSetupScreen(
         // Name
         OutlinedTextField(
             value = name,
-            onValueChange = { name = it },
+            onValueChange = { newValue ->
+                name = newValue
+            },
             label = { Text("Full Name") },
             modifier = Modifier.fillMaxWidth(),
-            enabled = googleLinked
+            enabled = googleLinked,
+            singleLine = true
         )
 
         Spacer(Modifier.height(16.dp))
@@ -181,12 +191,12 @@ fun ProfileSetupScreen(
         Button(
             modifier = Modifier.fillMaxWidth(),
             enabled = googleLinked &&
-                    name.isNotBlank() &&
+                    name.text.isNotBlank() &&
                     dob.isNotBlank() &&
                     age != null &&
                     age!! >= 18,
             onClick = {
-                Log.d("ProfileSetup", "Continue clicked, saving profile")
+                focusManager.clearFocus(force = true)
 
                 PreferenceManager.setAutoTrackingEnabled(
                     context = context,
@@ -194,15 +204,13 @@ fun ProfileSetupScreen(
                 )
 
                 profileVm.saveProfile(
-                    name = name,
+                    name = name.text,
                     dob = dob,
                     age = age!!,
                     onSuccess = {
-                        Log.d("ProfileSetup", "Profile save success, navigating")
                         onProfileCompleted()
                     },
                     onError = { error ->
-                        Log.e("ProfileSetup", "Profile save error: $error")
                         linkVm.errorMessage = error
                     }
                 )

@@ -64,4 +64,22 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE id = :id")
     suspend fun getExpenseById(id: Long): ExpenseEntity?
 
+    /**
+     * Get total spent amount for a category within date range.
+     * Only counts CONFIRMED DEBIT expenses.
+     */
+    @Query("""
+    SELECT IFNULL(SUM(amount), 0.0) 
+    FROM expenses 
+    WHERE status = 'CONFIRMED' 
+      AND type = 'DEBIT' 
+      AND category = :category 
+      AND timestamp BETWEEN :start AND :end
+""")
+    suspend fun getSpentAmountByCategory(
+        category: ExpenseCategory,
+        start: Long,
+        end: Long
+    ): Double
+
 }

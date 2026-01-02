@@ -154,6 +154,9 @@ fun DashboardScreen(
                 },
                 onAddExpense = {
                     showManualDialog = true
+                },
+                onViewBudgets = {
+                    navController.navigate("budgets")
                 }
             )
             if (showManualDialog) {
@@ -290,7 +293,8 @@ private fun SummarySectionCards(summary: com.cobfa.app.domain.model.MonthlySumma
 private fun ActionButtons(
     onAddExpense: () -> Unit,
     onLogout: () -> Unit,
-    onViewExpenses: () -> Unit
+    onViewExpenses: () -> Unit,
+    onViewBudgets: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Button(
@@ -307,6 +311,15 @@ private fun ActionButtons(
             onClick = onLogout
         ) {
             Text("Logout")
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onViewBudgets
+        ) {
+            Text("Budgets")
         }
 
         Spacer(Modifier.height(12.dp))

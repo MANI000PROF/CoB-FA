@@ -43,6 +43,7 @@ class DashboardViewModel(
         viewModelScope.launch {
             Log.d("DASHBOARD_VM", "Starting Firestore restore on app launch")
             syncManager.restoreFromFirestore()
+            syncManager.restoreBudgetsFromFirestore()
             Log.d("DASHBOARD_VM", "Firestore restore completed")
         }
         startPeriodicSmsScanning()

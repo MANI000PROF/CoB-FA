@@ -1,6 +1,7 @@
 package com.cobfa.app.data.remote
 
 import android.util.Log
+import com.cobfa.app.data.local.entity.BudgetEntity
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.domain.model.ExpenseCategory
 import com.cobfa.app.domain.model.ExpenseSource
@@ -199,4 +200,104 @@ class FirestoreService {
             Result.failure(e)
         }
     }
+
+    /**
+     * Backup monthly budgets to Firestore
+     * Structure: users/{uid}/budgets/{monthStart}
+     * Document contains array of all category budgets for that month
+     */
+    suspend fun backupBudgetsForMonth(
+        monthStart: Long,
+        budgets: List<BudgetEntity>
+    ): Result<Unit> {
+        return try {
+            val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
+
+            Log.d("FIRESTORE_SYNC", "Backing up ${budgets.size} budgets for month $monthStart")
+
+            val budgetData = budgets.map { budget ->
+                mapOf(
+                    "category" to budget.category.name,
+                    "amount" to budget.amount,
+                    "alertsEnabled" to budget.alertsEnabled
+                )
+            }
+
+            val monthDocData = mapOf(
+                "monthStart" to monthStart,
+                "budgets" to budgetData,
+                "createdAt" to System.currentTimeMillis(),
+                "updatedAt" to System.currentTimeMillis()
+            )
+
+            db.collection(collectionPath)
+                .document(userId)
+                .collection("budgets")
+                .document(monthStart.toString())
+                .set(monthDocData)
+                .await()
+
+            Log.d("FIRESTORE_SYNC", "Successfully backed up budgets for month $monthStart")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("FIRESTORE_SYNC", "Error backing up budgets: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Restore ALL budgets from Firestore
+     * Called on app launch to populate local Room DB
+     */
+    suspend fun fetchAllBudgets(): Result<Map<Long, List<BudgetEntity>>> {
+        return try {
+            val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
+
+            Log.d("FIRESTORE_SYNC", "Fetching all budgets from Firestore")
+
+            val snapshot = db.collection(collectionPath)
+                .document(userId)
+                .collection("budgets")
+                .get()
+                .await()
+
+            val budgetsByMonth = mutableMapOf<Long, List<BudgetEntity>>()
+
+            for (doc in snapshot.documents) {
+                try {
+                    val monthStart = doc.getLong("monthStart") ?: continue
+                    val budgetArray = doc.get("budgets") as? List<Map<String, Any>> ?: continue
+
+                    val budgets = budgetArray.mapNotNull { budgetMap ->
+                        try {
+                            BudgetEntity(
+                                category = ExpenseCategory.valueOf(budgetMap["category"] as String),
+                                amount = (budgetMap["amount"] as? Number)?.toDouble() ?: 0.0,
+                                monthStart = monthStart,
+                                alertsEnabled = budgetMap["alertsEnabled"] as? Boolean ?: true,
+                                createdAt = doc.getLong("createdAt") ?: 0L,
+                                updatedAt = doc.getLong("updatedAt") ?: 0L
+                            )
+                        } catch (e: Exception) {
+                            Log.e("FIRESTORE_SYNC", "Error parsing budget: ${e.message}")
+                            null
+                        }
+                    }
+
+                    if (budgets.isNotEmpty()) {
+                        budgetsByMonth[monthStart] = budgets
+                    }
+                } catch (e: Exception) {
+                    Log.e("FIRESTORE_SYNC", "Error processing budget document ${doc.id}: ${e.message}")
+                }
+            }
+
+            Log.d("FIRESTORE_SYNC", "Fetched ${budgetsByMonth.size} budget months")
+            Result.success(budgetsByMonth)
+        } catch (e: Exception) {
+            Log.e("FIRESTORE_SYNC", "Error fetching budgets: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
 }

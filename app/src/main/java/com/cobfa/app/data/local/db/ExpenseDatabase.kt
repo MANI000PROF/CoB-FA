@@ -7,20 +7,24 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.cobfa.app.data.local.dao.BudgetDao
 import com.cobfa.app.data.local.dao.ExpenseDao
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.data.local.db.Converters
+import com.cobfa.app.data.local.entity.BudgetEntity
 import com.google.firebase.BuildConfig
 
 @Database(
-    entities = [ExpenseEntity::class],
-    version = 2,
-    exportSchema = true
+    entities = [ExpenseEntity::class, BudgetEntity::class],
+    version = 3,
+    exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class ExpenseDatabase : RoomDatabase() {
 
     abstract fun expenseDao(): ExpenseDao
+    abstract fun budgetDao(): BudgetDao
+
 
     companion object {
         @Volatile
