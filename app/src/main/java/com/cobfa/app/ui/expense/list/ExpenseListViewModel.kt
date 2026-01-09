@@ -21,6 +21,9 @@ class ExpenseListViewModel(
     private val _categoryFilter = MutableStateFlow<ExpenseCategory?>(null)
     val categoryFilter: StateFlow<ExpenseCategory?> = _categoryFilter.asStateFlow()
 
+    private val _merchantFilter = MutableStateFlow<String?>(null)  // ✅ ADD
+    val merchantFilter: StateFlow<String?> = _merchantFilter.asStateFlow()  // ✅ EXPOSE
+
     private val allExpenses = repository
         .getConfirmedExpenses()
         .stateIn(
@@ -32,8 +35,9 @@ class ExpenseListViewModel(
     val expenses: StateFlow<List<com.cobfa.app.data.local.entity.ExpenseEntity>> = combine(
         allExpenses,
         _searchQuery,
-        _categoryFilter
-    ) { expenses, query, category ->
+        _categoryFilter,
+        _merchantFilter
+    ) { expenses, query, category, merchant ->
         expenses.filter { expense ->
             // Search: merchant OR category name contains query (case insensitive)
             val matchesSearch = query.isBlank() ||
@@ -43,7 +47,9 @@ class ExpenseListViewModel(
             // Category filter
             val matchesCategory = category == null || expense.category == category
 
-            matchesSearch && matchesCategory
+            val matchesMerchant = merchant == null || expense.merchant?.equals(merchant, ignoreCase = true) == true
+
+            matchesSearch && matchesCategory && matchesMerchant
         }
     }.stateIn(
         scope = viewModelScope,
@@ -59,8 +65,13 @@ class ExpenseListViewModel(
         _categoryFilter.value = category
     }
 
+    fun updateMerchantFilter(merchant: String?) {
+        _merchantFilter.value = merchant
+    }
+
     fun clearFilters() {
         _searchQuery.value = ""
         _categoryFilter.value = null
+        _merchantFilter.value = null
     }
 }

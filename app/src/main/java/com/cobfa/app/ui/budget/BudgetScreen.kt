@@ -35,9 +35,15 @@ fun BudgetScreen() {
     val firestoreService = remember { FirestoreService() }
     val syncManager = remember { SyncManager(db, firestoreService) }
 
+    // Restore budgets on screen load
+    rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        syncManager.restoreBudgetsFromFirestore()
+    }
+
     // Current month start (1st of current month, 00:00:00)
     val currentMonthStart = remember {
-        val cal = Calendar.getInstance()
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         cal.set(Calendar.DAY_OF_MONTH, 1)
         cal.set(Calendar.HOUR_OF_DAY, 0)
         cal.set(Calendar.MINUTE, 0)
@@ -131,7 +137,7 @@ private fun BudgetRow(
     var progress by remember { mutableStateOf(0.0) }
     var spentAmount by remember { mutableStateOf(0.0) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    rememberCoroutineScope()
     var showEditDialog by remember { mutableStateOf(false) }  // ✅ NEW
 
     // Compute real progress from expenses (run every 3 seconds)

@@ -157,16 +157,10 @@ class SyncManager(
             result.onSuccess { budgetsByMonth ->
                 Log.d("SYNC_MANAGER", "Restoring budgets for ${budgetsByMonth.size} months")
 
-                for ((monthStart, budgets) in budgetsByMonth) {
+                for ((_, budgets) in budgetsByMonth) {
                     for (budget in budgets) {
                         try {
-                            val existing = expenseDb.budgetDao()
-                                .getBudgetForCategory(budget.category, monthStart)
-
-                            if (existing == null) {
-                                expenseDb.budgetDao().upsertBudget(budget)
-                                Log.d("SYNC_MANAGER", "Restored budget ${budget.category} for $monthStart")
-                            }
+                            expenseDb.budgetDao().upsertBudget(budget)
                         } catch (e: Exception) {
                             Log.e("SYNC_MANAGER", "Error restoring budget ${budget.category}: ${e.message}")
                         }

@@ -15,9 +15,9 @@ class DashboardViewModelFactory(
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val db = ExpenseDatabase.getInstance(context)
         val analyticsRepo = AnalyticsRepository(db.expenseDao())
-        val firestoreService = FirestoreService()  // ✅ NEW
-        val syncManager = SyncManager(db, firestoreService)  // ✅ NEW
+        val firestoreService = FirestoreService()
+        val syncManager = SyncManager(db, firestoreService)
 
-        return DashboardViewModel(analyticsRepo, syncManager) as T  // ✅ Updated
+        return DashboardViewModel(analyticsRepo, syncManager, db, context) as T
     }
 }

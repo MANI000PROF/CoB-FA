@@ -49,4 +49,15 @@ interface BudgetDao {
      */
     @Query("SELECT * FROM budgets ORDER BY monthStart DESC, category ASC")
     fun getAllBudgets(): Flow<List<BudgetEntity>>
+
+    /**
+     * Get budgets for month (suspend - blocks until current value emitted).
+     */
+    @Query("""
+    SELECT * FROM budgets 
+    WHERE monthStart = :monthStart 
+    ORDER BY category ASC
+""")
+    suspend fun getCurrentBudgetsForMonth(monthStart: Long): List<BudgetEntity>
+
 }

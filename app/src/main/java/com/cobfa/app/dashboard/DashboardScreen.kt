@@ -4,9 +4,16 @@ import android.content.pm.PackageManager
 import android.Manifest
 import android.util.Log
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +26,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.data.repository.ExpenseRepository
@@ -29,6 +38,7 @@ import com.cobfa.app.sms.SmsProcessor
 import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
 import com.cobfa.app.utils.ExpenseLogger
+import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,18 +48,15 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val autoTrackingEnabled = PreferenceManager.isAutoTrackingEnabled(context)
-
     var autoTracking by remember { mutableStateOf(autoTrackingEnabled) }
 
     val db = remember { ExpenseDatabase.getInstance(context) }
-
-    // ✅ Create syncManager once
     val firestoreService = remember { FirestoreService() }
     val syncManager = remember { SyncManager(db, firestoreService) }
 
     val pendingVm = remember {
         PendingExpensesViewModel(
-            ExpenseRepository(db.expenseDao(), syncManager)  // ✅ Pass syncManager
+            ExpenseRepository(db.expenseDao(), syncManager)
         )
     }
 
@@ -57,39 +64,25 @@ fun DashboardScreen(
         factory = DashboardViewModelFactory(context)
     )
 
+    val activeAlert by vm.activeAlert.collectAsState()
     val summary by vm.summary.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
     var showManualDialog by remember { mutableStateOf(false) }
 
-    // ✅ Setup SMS scanning callback once
+    // SMS scanning callback
     LaunchedEffect(Unit) {
         vm.onRefreshRequest = {
-            Log.d("REFRESH_DEBUG", "SMS scan triggered via callback")
             performSmsScan(context, db)
         }
     }
 
-    // ✅ Initial scan when auto-tracking enabled
     LaunchedEffect(autoTracking) {
-        if (!autoTracking) return@LaunchedEffect
-        Log.d("REFRESH_DEBUG", "Initial auto-scan on app load")
-        performSmsScan(context, db)
+        if (autoTracking) performSmsScan(context, db)
     }
-
-    // ✅ Log refresh state changes
-    LaunchedEffect(isRefreshing) {
-        Log.d("REFRESH_DEBUG", "Refresh state changed: isRefreshing=$isRefreshing")
-    }
-
-    // ✅ Native Material 3 1.3.0 Pull-to-Refresh
-    Log.d("REFRESH_DEBUG", "Rendering PullToRefreshBox with isRefreshing=$isRefreshing")
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
-        onRefresh = {
-            Log.d("REFRESH_DEBUG", "onRefresh callback triggered by user pull")
-            vm.refreshSms()
-        },
+        onRefresh = { vm.refreshSms() },
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
@@ -98,23 +91,61 @@ fun DashboardScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.Top
         ) {
-            // Auto tracking toggle
+            // ✅ 1. PATTERN BANNER (top priority)
+            activeAlert?.let { alert ->
+                if (alert.ruleType.startsWith("MERCHANT_") ||
+                    alert.ruleType.startsWith("CATEGORY_") ||
+                    alert.ruleType.startsWith("HIGHVALUE_")) {
+
+                    var showPatternActions by remember { mutableStateOf(false) }
+
+                    AlertBanner(
+                        alert = alert,
+                        onDismiss = {
+                            vm.logAlertAction(alert.ruleType, "dismiss")
+                            vm.onAlertDismissed()
+                        },
+                        onAction = {
+                            showPatternActions = true
+                        }
+                    )
+
+                    if (showPatternActions) {
+                        PatternActionSheet(
+                            alert = alert,
+                            vm = vm,
+                            navController = navController,
+                            onDismiss = { showPatternActions = false }
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+
+            // ✅ 2. Budget warning badges (80-99%)
+            vm.budgetWarnings.collectAsState().value.forEach { warning ->
+                BudgetWarningBadge(
+                    warning = warning,
+                    vm = vm,
+                    onDetails = { navController.navigate("budgets") }
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // ✅ 3. Auto tracking toggle
             AutoTrackingToggle(
                 autoTracking = autoTracking,
                 onToggle = { checked ->
                     val granted = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.READ_SMS
+                        context, Manifest.permission.READ_SMS
                     ) == PackageManager.PERMISSION_GRANTED
 
-                    if (checked) {
-                        if (granted) {
-                            PreferenceManager.setAutoTrackingEnabled(context, true)
-                            autoTracking = true
-                        } else {
-                            PreferenceManager.setPendingAutoTracking(context, true)
-                            navController.navigate("sms_permission")
-                        }
+                    if (checked && granted) {
+                        PreferenceManager.setAutoTrackingEnabled(context, true)
+                        autoTracking = true
+                    } else if (checked) {
+                        PreferenceManager.setPendingAutoTracking(context, true)
+                        navController.navigate("sms_permission")
                     } else {
                         PreferenceManager.setAutoTrackingEnabled(context, false)
                         autoTracking = false
@@ -123,42 +154,42 @@ fun DashboardScreen(
             )
 
             Spacer(Modifier.height(24.dp))
+            Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
 
-            Text(
-                text = "Dashboard",
-                style = MaterialTheme.typography.headlineSmall
-            )
+            // ✅ 4. CRITICAL 100% MODAL (only overspend)
+            activeAlert?.let { alert ->
+                if (alert.ruleType == "BUDGET_100") {
+                    CriticalAlertDialog(
+                        title = "Budget Exceeded!",
+                        message = alert.message,
+                        onDismiss = { vm.onAlertDismissed() },
+                        onAdjust = {
+                            vm.onAlertActionTaken("adjust")
+                            navController.navigate("budgets")
+                        }
+                    )
+                }
+            }
 
             // Summary cards
-            summary?.let {
-                SummarySectionCards(it)
-            }
+            summary?.let { SummarySectionCards(it) }
 
             Spacer(Modifier.height(16.dp))
             Text("Welcome to CoB-FA")
-            Spacer(Modifier.height(16.dp))
 
-            // ✅ SCROLLABLE: Pending expenses now in scrollable container
             PendingExpensesSectionScrollable(vm = pendingVm)
-
             Spacer(Modifier.height(24.dp))
 
-            // Action buttons
             ActionButtons(
                 onLogout = {
                     FirebaseAuth.getInstance().signOut()
                     onLogout()
                 },
-                onViewExpenses = {
-                    navController.navigate("expenses")
-                },
-                onAddExpense = {
-                    showManualDialog = true
-                },
-                onViewBudgets = {
-                    navController.navigate("budgets")
-                }
+                onViewExpenses = { navController.navigate("expenses") },
+                onAddExpense = { showManualDialog = true },
+                onViewBudgets = { navController.navigate("budgets") }
             )
+
             if (showManualDialog) {
                 ManualExpenseDialog(
                     onDismiss = { showManualDialog = false },
@@ -168,6 +199,213 @@ fun DashboardScreen(
             }
         }
     }
+}
+
+@Composable
+fun PatternActionSheet(
+    alert: DashboardViewModel.BudgetAlert,
+    vm: DashboardViewModel,
+    navController: NavController,
+    onDismiss: () -> Unit
+) {
+    val merchant = alert.category
+    var showBudgetDialog by remember { mutableStateOf(false) }
+    var quickBudgetAmount by remember { mutableStateOf(300.0) }
+
+     LaunchedEffect(merchant) {
+     quickBudgetAmount = vm.suggestPatternBudget(merchant)
+     }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Smart Actions for $merchant",
+                style = MaterialTheme.typography.headlineSmall)
+        },
+        text = {
+            LazyColumn {
+                // 🚫 BLOCK 24h
+                item {
+                    ListItem(
+                        headlineContent = { Text("🚫 Block $merchant (24h)") },
+                        supportingContent = {
+                            Text("Skip future SMS from this merchant")
+                        },
+                        trailingContent = {
+                            Icon(Icons.Default.Block, null)
+                        },
+                        modifier = Modifier.clickable {
+                            vm.blockMerchantFor24h(merchant)
+                            onDismiss()
+                        }
+                    )
+                }
+
+                // 💰 QUICK BUDGET
+                item {
+                    ListItem(
+                        headlineContent = { Text("💰 Set $merchant Budget") },
+                        supportingContent = {
+                            Text("₹${String.format("%.0f", quickBudgetAmount)} daily limit")
+                        },
+                        trailingContent = {
+                            Icon(Icons.Default.AccountBalanceWallet, null)
+                        },
+                        modifier = Modifier.clickable { showBudgetDialog = true }
+                    )
+                }
+
+                // 📊
+                item {
+                    ListItem(
+                        headlineContent = { Text("📊 $merchant History") },
+                        supportingContent = {
+                            Text("View all transactions")
+                        },
+                        trailingContent = {
+                            Icon(Icons.Default.History, null)
+                        },
+                        modifier = Modifier.clickable {
+                            navController.navigate("expenses?merchant=${URLEncoder.encode(merchant, "UTF-8")}")
+                            vm.logPatternAction("view_history", merchant)
+                            onDismiss()
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Dismiss") }
+        }
+    )
+
+    // Quick Budget Dialog
+    if (showBudgetDialog) {
+        AlertDialog(
+            onDismissRequest = { showBudgetDialog = false },
+            title = { Text("Set $merchant Budget") },
+            text = {
+                Column {
+                    TextField(
+                        value = quickBudgetAmount.toString(),
+                        onValueChange = {
+                            quickBudgetAmount = it.toDoubleOrNull() ?: 300.0
+                        },
+                        label = { Text("Daily Limit") },
+                        prefix = { Text("₹") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.createPatternBudget(merchant, quickBudgetAmount)
+                    showBudgetDialog = false
+                    onDismiss()
+                }) { Text("Set Budget") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBudgetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun BudgetWarningBadge(
+    warning: DashboardViewModel.BudgetWarning,
+    vm: DashboardViewModel,
+    modifier: Modifier = Modifier,
+    onDetails: () -> Unit = {}  // Add callback
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer  // ✅ Standard warning
+            // OR: Color(0xFFFFF3C4)  // Soft yellow
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "${warning.category} ${warning.percentage}% ⚠️",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "₹${String.format("%.0f", warning.spent)} / ₹${String.format("%.0f", warning.budget)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onDetails) {
+                Text("Details")
+            }
+            IconButton(onClick = {
+                Log.d("WARNING_DISMISS", "Dismissing ${warning.category}")
+                vm.dismiss80Warning(warning.category)
+            }) {
+                Icon(Icons.Default.Close, "Dismiss warning")
+            }
+        }
+    }
+}
+
+@Composable
+fun AlertBanner(
+    alert: DashboardViewModel.BudgetAlert,
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit,
+    onAction: () -> Unit
+) {
+    Card(
+        modifier = modifier.padding(horizontal = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("⚠️ ${alert.ruleType}", style = MaterialTheme.typography.titleSmall)
+                Text(alert.message, style = MaterialTheme.typography.bodySmall)
+            }
+            Row {
+                TextButton(onClick = onAction) { Text("Fix") }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, null)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CriticalAlertDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onAdjust: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = MaterialTheme.colorScheme.error) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onAdjust) { Text("Adjust Budget") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Later") }
+        }
+    )
 }
 
 private suspend fun performSmsScan(
@@ -186,8 +424,8 @@ private suspend fun performSmsScan(
 
     ExpenseLogger.logScanStart("DashboardScreen")
 
-    val firestoreService = FirestoreService()  // ✅ NEW
-    val syncManager = SyncManager(db, firestoreService)  // ✅ NEW
+    val firestoreService = FirestoreService()
+    val syncManager = SyncManager(db, firestoreService)
 
     val repo = ExpenseRepository(db.expenseDao(), syncManager)
     val messages = SmsInboxReader.readRecentSms(context, limit = 50)
@@ -409,79 +647,3 @@ private fun PendingExpensesSectionScrollable(vm: PendingExpensesViewModel) {
     }
 }
 
-// ✅ OPTIONAL: Keep old non-scrollable version for reference (can delete later)
-@Composable
-fun PendingExpensesSection(vm: PendingExpensesViewModel) {
-    val expenses by vm.pendingExpenses.collectAsState(initial = emptyList())
-    var selectedExpenseId by remember { mutableStateOf<Long?>(null) }
-
-    if (expenses.isEmpty()) return
-
-    Column {
-        Text("Pending expenses", style = MaterialTheme.typography.titleMedium)
-
-        expenses.forEach { e ->
-            Card(modifier = Modifier.padding(vertical = 8.dp)) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "${e.type.name}  ₹${e.amount}",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        Text(e.merchant ?: "Unknown", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Button(onClick = { selectedExpenseId = e.id }) {
-                        Text("Confirm")
-                    }
-                }
-                selectedExpenseId?.let { expenseId ->
-                    com.cobfa.app.ui.expense.list.CategoryPickerBottomSheet(
-                        onCategorySelected = { category ->
-                            vm.confirm(expenseId, category)
-                            selectedExpenseId = null
-                        },
-                        onDismiss = {
-                            selectedExpenseId = null
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SummaryCard(
-    title: String,
-    amount: Long,
-    color: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.padding(horizontal = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "₹${amount}",
-                style = MaterialTheme.typography.titleMedium,
-                color = color
-            )
-        }
-    }
-}

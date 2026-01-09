@@ -1,11 +1,14 @@
 package com.cobfa.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.cobfa.app.auth.otp.OtpScreen
 import com.cobfa.app.auth.phone.PhoneAuthScreen
 import com.cobfa.app.auth.phone.PhoneAuthViewModel
@@ -14,6 +17,7 @@ import com.cobfa.app.dashboard.DashboardScreen
 import com.cobfa.app.launch.LaunchScreen
 import com.cobfa.app.ui.budget.BudgetScreen
 import com.cobfa.app.ui.expense.list.ExpenseListScreen
+import com.cobfa.app.ui.expense.list.ExpenseListViewModel
 import com.cobfa.app.ui.expense.list.ExpenseListViewModelFactory
 import com.cobfa.app.ui.permission.SmsPermissionScreen
 import com.cobfa.app.utils.PreferenceManager
@@ -117,14 +121,33 @@ fun AppNavigation() {
             )
         }
 
-        composable("expenses") {
-            val context = LocalContext.current
-
-            ExpenseListScreen(
-                vm = viewModel(
-                    factory = ExpenseListViewModelFactory(context)
-                )
+        composable(
+            "expenses?merchant={merchant}",
+            arguments = listOf(
+                navArgument("merchant") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
             )
+        ) { backStackEntry ->
+            val context = LocalContext.current
+            val merchant = backStackEntry.arguments?.getString("merchant")
+
+            val vm: ExpenseListViewModel = viewModel(
+                factory = ExpenseListViewModelFactory(context)
+            )
+
+            // ✅ Auto-apply merchant filter
+            LaunchedEffect(merchant) {
+                if (merchant != null) {
+                    vm.updateMerchantFilter(merchant)
+                } else {
+                    vm.clearFilters()
+                }
+            }
+
+            ExpenseListScreen(vm)
         }
 
         composable("budgets") {
