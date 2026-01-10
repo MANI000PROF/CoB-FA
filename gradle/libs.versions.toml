@@ -11,6 +11,7 @@ appcompat = "1.6.1"
 # Jetpack Compose (stable, SDK 34 compatible)
 composeUi = "1.6.7"
 material3 = "1.3.0"
+mpandroidchart = "v3.1.0"
 navigationCompose = "2.7.7"
 runtimeCompose = "1.6.7"
 
@@ -22,7 +23,7 @@ firebaseFirestore = "25.0.0"
 # Google / Credentials (stable, SDK 34 compatible)
 credentials = "1.3.0"
 googleid = "1.1.1"
-googlePlayServicesAuth = "21.0.1"
+googlePlayServicesAuth = "21.5.0"
 
 # Testing
 junit = "4.13.2"
@@ -73,6 +74,7 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+mpandroidchart = { module = "com.github.PhilJay:MPAndroidChart", version.ref = "mpandroidchart" }
 
 [plugins]
 

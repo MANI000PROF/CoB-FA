@@ -84,4 +84,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
+    implementation(libs.mpandroidchart)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
 }

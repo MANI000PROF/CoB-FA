@@ -7,8 +7,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Block
@@ -38,6 +40,7 @@ import com.cobfa.app.sms.SmsProcessor
 import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
 import com.cobfa.app.utils.ExpenseLogger
+import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +71,8 @@ fun DashboardScreen(
     val summary by vm.summary.collectAsState()
     val isRefreshing by vm.isRefreshing.collectAsState()
     var showManualDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // SMS scanning callback
     LaunchedEffect(Unit) {
@@ -80,122 +85,143 @@ fun DashboardScreen(
         if (autoTracking) performSmsScan(context, db)
     }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = { vm.refreshSms() },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Top
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("cobfa_gamification", android.content.Context.MODE_PRIVATE)
+        val lastSeen = prefs.getLong("last_seen_badge_time", 0L)
+
+        val latest = db.achievementDao().getLatestUnlocked()
+        if (latest != null && latest.unlockedAt > lastSeen) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Badge unlocked: ${latest.title}")
+            }
+            prefs.edit().putLong("last_seen_badge_time", latest.unlockedAt).apply()
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { vm.refreshSms() },
+            modifier = Modifier.fillMaxSize()
         ) {
-            // ✅ 1. PATTERN BANNER (top priority)
-            activeAlert?.let { alert ->
-                if (alert.ruleType.startsWith("MERCHANT_") ||
-                    alert.ruleType.startsWith("CATEGORY_") ||
-                    alert.ruleType.startsWith("HIGHVALUE_")) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Top
+            ) {
+                // ✅ 1. PATTERN BANNER (top priority)
+                activeAlert?.let { alert ->
+                    if (alert.ruleType.startsWith("MERCHANT_") ||
+                        alert.ruleType.startsWith("CATEGORY_") ||
+                        alert.ruleType.startsWith("HIGHVALUE_")
+                    ) {
 
-                    var showPatternActions by remember { mutableStateOf(false) }
+                        var showPatternActions by remember { mutableStateOf(false) }
 
-                    AlertBanner(
-                        alert = alert,
-                        onDismiss = {
-                            vm.logAlertAction(alert.ruleType, "dismiss")
-                            vm.onAlertDismissed()
-                        },
-                        onAction = {
-                            showPatternActions = true
-                        }
-                    )
-
-                    if (showPatternActions) {
-                        PatternActionSheet(
+                        AlertBanner(
                             alert = alert,
-                            vm = vm,
-                            navController = navController,
-                            onDismiss = { showPatternActions = false }
+                            onDismiss = {
+                                vm.logAlertAction(alert.ruleType, "dismiss")
+                                vm.onAlertDismissed()
+                            },
+                            onAction = {
+                                showPatternActions = true
+                            }
+                        )
+
+                        if (showPatternActions) {
+                            PatternActionSheet(
+                                alert = alert,
+                                vm = vm,
+                                navController = navController,
+                                onDismiss = { showPatternActions = false }
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+
+                // ✅ 2. Budget warning badges (80-99%)
+                vm.budgetWarnings.collectAsState().value.forEach { warning ->
+                    BudgetWarningBadge(
+                        warning = warning,
+                        vm = vm,
+                        onDetails = { navController.navigate("budgets") }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // ✅ 3. Auto tracking toggle
+                AutoTrackingToggle(
+                    autoTracking = autoTracking,
+                    onToggle = { checked ->
+                        val granted = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.READ_SMS
+                        ) == PackageManager.PERMISSION_GRANTED
+
+                        if (checked && granted) {
+                            PreferenceManager.setAutoTrackingEnabled(context, true)
+                            autoTracking = true
+                        } else if (checked) {
+                            PreferenceManager.setPendingAutoTracking(context, true)
+                            navController.navigate("sms_permission")
+                        } else {
+                            PreferenceManager.setAutoTrackingEnabled(context, false)
+                            autoTracking = false
+                        }
+                    }
+                )
+
+                Spacer(Modifier.height(24.dp))
+                Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
+
+                // ✅ 4. CRITICAL 100% MODAL (only overspend)
+                activeAlert?.let { alert ->
+                    if (alert.ruleType == "BUDGET_100") {
+                        CriticalAlertDialog(
+                            title = "Budget Exceeded!",
+                            message = alert.message,
+                            onDismiss = { vm.onAlertDismissed() },
+                            onAdjust = {
+                                vm.onAlertActionTaken("adjust")
+                                navController.navigate("budgets")
+                            }
                         )
                     }
-                    Spacer(Modifier.height(12.dp))
                 }
-            }
 
-            // ✅ 2. Budget warning badges (80-99%)
-            vm.budgetWarnings.collectAsState().value.forEach { warning ->
-                BudgetWarningBadge(
-                    warning = warning,
-                    vm = vm,
-                    onDetails = { navController.navigate("budgets") }
+                // Summary cards
+                summary?.let { SummarySectionCards(it) }
+
+                Spacer(Modifier.height(16.dp))
+                Text("Welcome to CoB-FA")
+
+                PendingExpensesSectionScrollable(vm = pendingVm)
+                Spacer(Modifier.height(24.dp))
+
+                ActionButtons(
+                    onLogout = {
+                        FirebaseAuth.getInstance().signOut()
+                        onLogout()
+                    },
+                    onViewExpenses = { navController.navigate("expenses") },
+                    onAddExpense = { showManualDialog = true },
+                    onViewBudgets = { navController.navigate("budgets") },
+                    onViewAnalytics = { navController.navigate("analytics") },
+                    onViewAchievements = { navController.navigate("achievements") }
                 )
-                Spacer(Modifier.height(8.dp))
-            }
 
-            // ✅ 3. Auto tracking toggle
-            AutoTrackingToggle(
-                autoTracking = autoTracking,
-                onToggle = { checked ->
-                    val granted = ContextCompat.checkSelfPermission(
-                        context, Manifest.permission.READ_SMS
-                    ) == PackageManager.PERMISSION_GRANTED
-
-                    if (checked && granted) {
-                        PreferenceManager.setAutoTrackingEnabled(context, true)
-                        autoTracking = true
-                    } else if (checked) {
-                        PreferenceManager.setPendingAutoTracking(context, true)
-                        navController.navigate("sms_permission")
-                    } else {
-                        PreferenceManager.setAutoTrackingEnabled(context, false)
-                        autoTracking = false
-                    }
-                }
-            )
-
-            Spacer(Modifier.height(24.dp))
-            Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
-
-            // ✅ 4. CRITICAL 100% MODAL (only overspend)
-            activeAlert?.let { alert ->
-                if (alert.ruleType == "BUDGET_100") {
-                    CriticalAlertDialog(
-                        title = "Budget Exceeded!",
-                        message = alert.message,
-                        onDismiss = { vm.onAlertDismissed() },
-                        onAdjust = {
-                            vm.onAlertActionTaken("adjust")
-                            navController.navigate("budgets")
-                        }
+                if (showManualDialog) {
+                    ManualExpenseDialog(
+                        onDismiss = { showManualDialog = false },
+                        db = db,
+                        syncManager = syncManager
                     )
                 }
-            }
-
-            // Summary cards
-            summary?.let { SummarySectionCards(it) }
-
-            Spacer(Modifier.height(16.dp))
-            Text("Welcome to CoB-FA")
-
-            PendingExpensesSectionScrollable(vm = pendingVm)
-            Spacer(Modifier.height(24.dp))
-
-            ActionButtons(
-                onLogout = {
-                    FirebaseAuth.getInstance().signOut()
-                    onLogout()
-                },
-                onViewExpenses = { navController.navigate("expenses") },
-                onAddExpense = { showManualDialog = true },
-                onViewBudgets = { navController.navigate("budgets") }
-            )
-
-            if (showManualDialog) {
-                ManualExpenseDialog(
-                    onDismiss = { showManualDialog = false },
-                    db = db,
-                    syncManager = syncManager
-                )
             }
         }
     }
@@ -532,7 +558,9 @@ private fun ActionButtons(
     onAddExpense: () -> Unit,
     onLogout: () -> Unit,
     onViewExpenses: () -> Unit,
-    onViewBudgets: () -> Unit
+    onViewBudgets: () -> Unit,
+    onViewAnalytics: () -> Unit,
+    onViewAchievements: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Button(
@@ -559,6 +587,22 @@ private fun ActionButtons(
         ) {
             Text("Budgets")
         }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onViewAnalytics
+        ) {
+            Text("Analytics")
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onViewAchievements
+        ) { Text("Achievements") }
 
         Spacer(Modifier.height(12.dp))
 
