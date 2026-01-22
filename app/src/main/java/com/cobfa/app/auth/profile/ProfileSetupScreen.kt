@@ -25,6 +25,25 @@ import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import java.util.*
 
+private val INDIA_STATES_UTS = listOf(
+    "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh","Goa","Gujarat","Haryana",
+    "Himachal Pradesh","Jharkhand","Karnataka","Kerala","Madhya Pradesh","Maharashtra","Manipur",
+    "Meghalaya","Mizoram","Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
+    "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
+    "Andaman and Nicobar Islands","Chandigarh","Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi","Jammu and Kashmir","Ladakh","Lakshadweep","Puducherry"
+)
+
+private val CITIES_BY_STATE = mapOf(
+    "Telangana" to listOf("Hyderabad", "Warangal", "Nizamabad", "Karimnagar", "Khammam", "Nalgonda"),
+    "Andhra Pradesh" to listOf("Visakhapatnam", "Vijayawada", "Guntur", "Nellore", "Tirupati", "Kurnool"),
+    "Karnataka" to listOf("Bengaluru", "Mysuru", "Mangaluru", "Hubballi", "Belagavi"),
+    "Tamil Nadu" to listOf("Chennai", "Coimbatore", "Madurai", "Salem", "Tiruchirappalli"),
+    "Maharashtra" to listOf("Mumbai", "Pune", "Nagpur", "Nashik", "Thane"),
+    "Delhi" to listOf("New Delhi", "Delhi")
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSetupScreen(
     onProfileCompleted: () -> Unit = {}
@@ -45,6 +64,12 @@ fun ProfileSetupScreen(
     var age by rememberSaveable { mutableStateOf<Int?>(null) }
     var ageError by remember { mutableStateOf(false) }
 
+    var city by rememberSaveable { mutableStateOf("") }
+    var state by rememberSaveable { mutableStateOf("") }
+    var username by rememberSaveable { mutableStateOf("") }
+
+    var profileError by rememberSaveable { mutableStateOf<String?>(null) }
+
     var autoTrackingEnabled by rememberSaveable { mutableStateOf(false) }
 
     // Launcher for Google Sign-In
@@ -62,13 +87,18 @@ fun ProfileSetupScreen(
                         googleLinked = true
                         val user = FirebaseAuth.getInstance().currentUser
                         // Try multiple safe sources
-                        name = TextFieldValue(
+                        val resolvedName =
                             when {
                                 !user?.displayName.isNullOrBlank() -> user?.displayName!!
                                 !user?.email.isNullOrBlank() -> user?.email!!.substringBefore("@")
                                 else -> ""
                             }
-                        )
+
+                        name = TextFieldValue(resolvedName)
+                        val uid = user?.uid
+                        if (!uid.isNullOrBlank()) {
+                            username = profileVm.suggestUsername(resolvedName, uid)
+                        }
                     }
                 },
                 onError = { error ->
@@ -77,7 +107,6 @@ fun ProfileSetupScreen(
                 }
             )
         }
-
 
     // Date picker
     fun openDatePicker() {
@@ -149,6 +178,19 @@ fun ProfileSetupScreen(
             singleLine = true
         )
 
+        // User Name
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username (unique, set once)") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = googleLinked,
+            singleLine = true,
+            supportingText = { Text("3–15 chars: a-z, 0-9, underscore") }
+        )
+
         Spacer(Modifier.height(16.dp))
 
         // DOB
@@ -187,6 +229,88 @@ fun ProfileSetupScreen(
 
         Spacer(Modifier.height(32.dp))
 
+        // City (searchable dropdown over a small suggestion list)
+        val citySuggestions = remember(state) { CITIES_BY_STATE[state].orEmpty() }
+        var cityExpanded by rememberSaveable { mutableStateOf(false) }
+        val filteredCities = remember(city, citySuggestions) {
+            if (city.isBlank()) citySuggestions
+            else citySuggestions.filter { it.contains(city.trim(), ignoreCase = true) }
+        }
+        var stateExpanded by rememberSaveable { mutableStateOf(false) }
+
+        // State (fixed dropdown)
+        ExposedDropdownMenuBox(
+            expanded = stateExpanded,
+            onExpandedChange = { if (googleLinked) stateExpanded = !stateExpanded }
+        ) {
+            OutlinedTextField(
+                value = state,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("State") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
+                enabled = googleLinked,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded) }
+            )
+
+            ExposedDropdownMenu(
+                expanded = stateExpanded,
+                onDismissRequest = { stateExpanded = false }
+            ) {
+                INDIA_STATES_UTS.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            state = option
+                            city = ""
+                            stateExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // City (fixed dropdown)
+        ExposedDropdownMenuBox(
+            expanded = cityExpanded && filteredCities.isNotEmpty(),
+            onExpandedChange = { if (googleLinked && state.isNotBlank()) cityExpanded = !cityExpanded }
+        ) {
+            OutlinedTextField(
+                value = city,
+                onValueChange = {
+                    city = it
+                    if (googleLinked && state.isNotBlank()) cityExpanded = true
+                },
+                label = { Text("City (residential)") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
+                enabled = googleLinked && state.isNotBlank(),
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cityExpanded) }
+            )
+
+            ExposedDropdownMenu(
+                expanded = cityExpanded && filteredCities.isNotEmpty(),
+                onDismissRequest = { cityExpanded = false }
+            ) {
+                filteredCities.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option) },
+                        onClick = {
+                            city = option
+                            cityExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
         // Continue
         Button(
             modifier = Modifier.fillMaxWidth(),
@@ -194,7 +318,7 @@ fun ProfileSetupScreen(
                     name.text.isNotBlank() &&
                     dob.isNotBlank() &&
                     age != null &&
-                    age!! >= 18,
+                    age!! >= 18 && city.isNotBlank() && state.isNotBlank() && username.isNotBlank(),
             onClick = {
                 focusManager.clearFocus(force = true)
 
@@ -203,15 +327,20 @@ fun ProfileSetupScreen(
                     enabled = autoTrackingEnabled
                 )
 
+                profileError = null
+
                 profileVm.saveProfile(
                     name = name.text,
                     dob = dob,
                     age = age!!,
+                    city = city,
+                    state = state,
+                    username = username,
                     onSuccess = {
                         onProfileCompleted()
                     },
                     onError = { error ->
-                        linkVm.errorMessage = error
+                        profileError = error
                     }
                 )
             }
@@ -220,6 +349,11 @@ fun ProfileSetupScreen(
         }
 
         linkVm.errorMessage?.let {
+            Spacer(Modifier.height(16.dp))
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
+
+        profileError?.let {
             Spacer(Modifier.height(16.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
         }

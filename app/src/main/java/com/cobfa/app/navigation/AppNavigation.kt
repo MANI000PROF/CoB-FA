@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -22,6 +23,7 @@ import com.cobfa.app.auth.profile.ProfileSetupScreen
 import com.cobfa.app.dashboard.AchievementsViewModel
 import com.cobfa.app.dashboard.AnalyticsViewModel
 import com.cobfa.app.dashboard.DashboardScreen
+import com.cobfa.app.dashboard.LeaderboardViewModel
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.launch.LaunchScreen
 import com.cobfa.app.ui.achievements.AchievementsScreen
@@ -30,8 +32,11 @@ import com.cobfa.app.ui.budget.BudgetScreen
 import com.cobfa.app.ui.expense.list.ExpenseListScreen
 import com.cobfa.app.ui.expense.list.ExpenseListViewModel
 import com.cobfa.app.ui.expense.list.ExpenseListViewModelFactory
+import com.cobfa.app.ui.leaderboard.LeaderboardScreen
 import com.cobfa.app.ui.permission.SmsPermissionScreen
 import com.cobfa.app.utils.PreferenceManager
+import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.tasks.await
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -209,6 +214,42 @@ fun AppNavigation() {
             )
         }
 
+        composable("leaderboard") {
+            val context = LocalContext.current
+            val vm: LeaderboardViewModel = viewModel()
+
+            val mode by vm.mode.collectAsState()
+            val rows by vm.rows.collectAsState()
+            val loading by vm.loading.collectAsState()
+            val error by vm.error.collectAsState()
+
+            // Read city/state from RealtimeDB profile (since you store it there)
+            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            var city by remember { androidx.compose.runtime.mutableStateOf("") }
+            var state by remember { androidx.compose.runtime.mutableStateOf("") }
+
+            LaunchedEffect(uid) {
+                if (uid != null) {
+                    val snap = FirebaseDatabase.getInstance().reference
+                        .child("users").child(uid)
+                        .get().await()
+
+                    city = snap.child("city").getValue(String::class.java) ?: ""
+                    state = snap.child("state").getValue(String::class.java) ?: ""
+                }
+            }
+
+            LeaderboardScreen(
+                city = city,
+                state = state,
+                mode = mode,
+                rows = rows,
+                loading = loading,
+                error = error,
+                onModeChange = { vm.setMode(it) },
+                onReload = { if (city.isNotBlank() && state.isNotBlank()) vm.load(city, state) }
+            )
+        }
 
         composable("budgets") {
             BudgetScreen()

@@ -18,4 +18,16 @@ interface NudgeEventDao {
     @Query("SELECT * FROM nudge_events ORDER BY timestamp DESC LIMIT 200")
     suspend fun getRecentEventsSnapshot(): List<NudgeEventEntity>
 
+    @Query("SELECT * FROM nudge_events WHERE timestamp >= :since ORDER BY timestamp DESC")
+    suspend fun getEventsSince(since: Long): List<NudgeEventEntity>
+
+    @Query("SELECT * FROM nudge_events ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentEventsOnce(limit: Int = 200): List<NudgeEventEntity>
+
+    @Query("""
+        SELECT COUNT(*) FROM nudge_events
+        WHERE type = :type AND category = :category AND action = 'dismiss' AND timestamp >= :since
+        """)
+    suspend fun countDismissedSince(type: String, category: String, since: Long): Int
+
 }

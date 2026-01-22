@@ -2,7 +2,9 @@ package com.cobfa.app.dashboard
 
 import android.content.pm.PackageManager
 import android.Manifest
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -39,10 +41,12 @@ import com.cobfa.app.sms.SmsInboxReader
 import com.cobfa.app.sms.SmsProcessor
 import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
+import com.cobfa.app.ui.insights.InsightCard
 import com.cobfa.app.utils.ExpenseLogger
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -73,6 +77,7 @@ fun DashboardScreen(
     var showManualDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val insights by vm.personalizedInsights.collectAsState()
 
     // SMS scanning callback
     LaunchedEffect(Unit) {
@@ -150,7 +155,7 @@ fun DashboardScreen(
                     BudgetWarningBadge(
                         warning = warning,
                         vm = vm,
-                        onDetails = { navController.navigate("budgets") }
+                        navController = navController
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -200,6 +205,10 @@ fun DashboardScreen(
                 Spacer(Modifier.height(16.dp))
                 Text("Welcome to CoB-FA")
 
+                Spacer(Modifier.height(16.dp))
+                InsightCard(insights = insights)
+                Spacer(Modifier.height(16.dp))
+
                 PendingExpensesSectionScrollable(vm = pendingVm)
                 Spacer(Modifier.height(24.dp))
 
@@ -212,7 +221,8 @@ fun DashboardScreen(
                     onAddExpense = { showManualDialog = true },
                     onViewBudgets = { navController.navigate("budgets") },
                     onViewAnalytics = { navController.navigate("analytics") },
-                    onViewAchievements = { navController.navigate("achievements") }
+                    onViewAchievements = { navController.navigate("achievements") },
+                    onViewLeaderboard = { navController.navigate("leaderboard") }
                 )
 
                 if (showManualDialog) {
@@ -227,6 +237,7 @@ fun DashboardScreen(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun PatternActionSheet(
     alert: DashboardViewModel.BudgetAlert,
@@ -338,12 +349,13 @@ fun PatternActionSheet(
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun BudgetWarningBadge(
     warning: DashboardViewModel.BudgetWarning,
     vm: DashboardViewModel,
+    navController: NavController,
     modifier: Modifier = Modifier,
-    onDetails: () -> Unit = {}  // Add callback
 ) {
     Card(
         modifier = modifier,
@@ -369,11 +381,15 @@ fun BudgetWarningBadge(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            TextButton(onClick = onDetails) {
+            TextButton(onClick = {
+                vm.logGenericNudge(type = "BUDGET_80", category = warning.category, action = "details")
+                navController.navigate("budgets")
+            }) {
                 Text("Details")
             }
             IconButton(onClick = {
                 Log.d("WARNING_DISMISS", "Dismissing ${warning.category}")
+                vm.logGenericNudge(type = "BUDGET_80", category = warning.category, action = "dismiss")
                 vm.dismiss80Warning(warning.category)
             }) {
                 Icon(Icons.Default.Close, "Dismiss warning")
@@ -560,7 +576,8 @@ private fun ActionButtons(
     onViewExpenses: () -> Unit,
     onViewBudgets: () -> Unit,
     onViewAnalytics: () -> Unit,
-    onViewAchievements: () -> Unit
+    onViewAchievements: () -> Unit,
+    onViewLeaderboard: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Button(
@@ -603,6 +620,13 @@ private fun ActionButtons(
             modifier = Modifier.fillMaxWidth(),
             onClick = onViewAchievements
         ) { Text("Achievements") }
+
+        Spacer(Modifier.height(12.dp))
+
+        Button(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onViewLeaderboard
+        ) { Text("Leaderboard") }
 
         Spacer(Modifier.height(12.dp))
 

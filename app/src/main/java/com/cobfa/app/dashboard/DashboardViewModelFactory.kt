@@ -1,6 +1,8 @@
 package com.cobfa.app.dashboard
 
 import android.content.Context
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.cobfa.app.data.local.db.ExpenseDatabase
@@ -12,6 +14,7 @@ import com.cobfa.app.data.repository.SyncManager
 class DashboardViewModelFactory(
     private val context: Context
 ) : ViewModelProvider.Factory {
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val db = ExpenseDatabase.getInstance(context)
         val analyticsRepo = AnalyticsRepository(db.expenseDao())

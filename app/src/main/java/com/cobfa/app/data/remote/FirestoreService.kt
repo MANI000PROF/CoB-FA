@@ -8,7 +8,9 @@ import com.cobfa.app.domain.model.ExpenseSource
 import com.cobfa.app.domain.model.ExpenseStatus
 import com.cobfa.app.domain.model.ExpenseType
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import java.util.*
 
@@ -27,6 +29,147 @@ class FirestoreService {
 
     private val currentUserId: String?
         get() = auth.currentUser?.uid
+
+    // Public leaderboard collection (safe fields only)
+    private val publicUsersCollection = "users_public"
+
+    data class PublicUser(
+        val uid: String = "",
+        val username: String = "",
+        val city: String = "",
+        val state: String = "",
+        val country: String = "India",
+        val pointsBalance: Int = 0,
+        val updatedAt: Long = 0L
+    )
+
+    suspend fun upsertPublicUser(
+        username: String,
+        city: String,
+        state: String,
+        country: String = "India",
+        pointsBalance: Int
+    ): Result<Unit> {
+        return try {
+            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
+
+            val data = mapOf(
+                "uid" to uid,
+                "username" to username,
+                "city" to city.trim(),
+                "state" to state.trim(),
+                "country" to country.trim(),
+                "pointsBalance" to pointsBalance,
+                "updatedAt" to System.currentTimeMillis()
+            )
+
+            db.collection(publicUsersCollection)
+                .document(uid)
+                .set(data)
+                .await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchCityLeaderboard(
+        city: String,
+        state: String,
+        limit: Long = 50
+    ): Result<List<PublicUser>> {
+        return try {
+            val snap = db.collection(publicUsersCollection)
+                .whereEqualTo("city", city.trim())
+                .whereEqualTo("state", state.trim())
+                .orderBy("pointsBalance", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit)
+                .get()
+                .await()
+
+            Result.success(snap.toObjects(PublicUser::class.java))
+        } catch (e: Exception) {
+            // If Firestore asks for an index, it will throw an error with a link to create it. [web:357]
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchStateLeaderboard(
+        state: String,
+        limit: Long = 50
+    ): Result<List<PublicUser>> {
+        return try {
+            val snap = db.collection(publicUsersCollection)
+                .whereEqualTo("state", state.trim())
+                .orderBy("pointsBalance", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit)
+                .get()
+                .await()
+
+            Result.success(snap.toObjects(PublicUser::class.java))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun incrementPublicPoints(delta: Int): Result<Unit> {
+        return try {
+            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
+            db.collection(publicUsersCollection)
+                .document(uid)
+                .set(
+                    mapOf(
+                        "pointsBalance" to FieldValue.increment(delta.toLong()),
+                        "updatedAt" to System.currentTimeMillis()
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun claimUsername(username: String): Result<Unit> {
+        return try {
+            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
+            val key = username.trim().lowercase()
+
+            val ref = db.collection("usernames").document(key)
+
+            db.runTransaction { tx ->
+                val snap = tx.get(ref)
+                if (snap.exists()) {
+                    throw IllegalStateException("Username taken")
+                }
+                tx.set(ref, mapOf("uid" to uid, "createdAt" to System.currentTimeMillis()))
+                null
+            }.await()
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("FIRESTORE_SYNC", "claimUsername($username) failed", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun releaseUsername(username: String): Result<Unit> {
+        return try {
+            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
+            val key = username.trim().lowercase()
+            val ref = db.collection("usernames").document(key)
+
+            val snap = ref.get().await()
+            if (snap.getString("uid") == uid) {
+                ref.delete().await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     /**
      * Backup a confirmed expense to Firestore

@@ -1,15 +1,20 @@
 package com.cobfa.app.dashboard
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.local.entity.NudgeEventEntity
 import com.cobfa.app.data.repository.AnalyticsRepository
 import com.cobfa.app.data.repository.BudgetRepository
+import com.cobfa.app.data.repository.GamificationRepository
+import com.cobfa.app.data.repository.PersonalizationRepository
 import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.MonthlySummary
+import com.cobfa.app.domain.model.PersonalizedInsight
 import com.cobfa.app.utils.ExpenseLogger
 import com.cobfa.app.utils.PreferenceManager
 import kotlinx.coroutines.delay
@@ -17,9 +22,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.*
 
+@RequiresApi(Build.VERSION_CODES.O)
 class DashboardViewModel(
     private val analyticsRepo: AnalyticsRepository,
     private val syncManager: SyncManager,
@@ -49,6 +56,9 @@ class DashboardViewModel(
     private val _budgetWarnings = MutableStateFlow<List<BudgetWarning>>(emptyList())
     val budgetWarnings: StateFlow<List<BudgetWarning>> = _budgetWarnings
 
+    private val _personalizedInsights = MutableStateFlow<List<PersonalizedInsight>>(emptyList())
+    val personalizedInsights: StateFlow<List<PersonalizedInsight>> = _personalizedInsights
+
     data class BudgetWarning(
         val category: String,
         val percentage: Int,
@@ -69,14 +79,45 @@ class DashboardViewModel(
 
     var onRefreshRequest: suspend () -> Unit = {}
 
+    private val gamificationRepo = GamificationRepository(
+        context = context,
+        nudgeDao = db.nudgeEventDao(),
+        pointsDao = db.pointsDao(),
+        achievementDao = db.achievementDao(),
+        budgetRepo = BudgetRepository(db.budgetDao()),
+        expenseDao = db.expenseDao()
+    )
+
     init {
         viewModelScope.launch {
             syncManager.restoreFromFirestore()
             syncManager.restoreBudgetsFromFirestore()
             // Check alerts after restore
             checkForBudgetAlerts()
+            refreshPersonalizedInsights()
         }
         startPeriodicSmsScanning()
+        viewModelScope.launch {
+            val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
+            var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
+
+            val initial = db.nudgeEventDao().getEventsSince(lastTs)
+            if (initial.isNotEmpty()) {
+                gamificationRepo.processNudgeEvents(initial)
+                lastTs = initial.maxOf { it.timestamp }
+                prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
+            }
+
+            while (isActive) {
+                val newer = db.nudgeEventDao().getEventsSince(lastTs)
+                if (newer.isNotEmpty()) {
+                    gamificationRepo.processNudgeEvents(newer)
+                    lastTs = newer.maxOf { it.timestamp }
+                    prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
+                }
+                delay(5_000)
+            }
+        }
     }
 
     /**
@@ -96,6 +137,7 @@ class DashboardViewModel(
                 onRefreshRequest()
                 // ✅ NEW: Check alerts after SMS scan
                 checkForBudgetAlerts()
+                refreshPersonalizedInsights()
             } catch (e: Exception) {
                 ExpenseLogger.logDatabaseError("refreshSms", e.message ?: "Unknown error")
             } finally {
@@ -172,7 +214,7 @@ class DashboardViewModel(
 
         // 80% → INLINE warnings (NO popup)
         val warnings = usages.filter {
-            it.alertsEnabled && it.percentageUsed >= 80 && it.percentageUsed < 100 && !is80WarningDismissed(it.category.name)
+            it.alertsEnabled && it.percentageUsed >= 80 && it.percentageUsed < 100 && !is80WarningDismissed(it.category.name) && !hasRecentGoodBudgetAction(it.category.name)
         }.map {
             BudgetWarning(
                 category = it.category.name,
@@ -184,6 +226,15 @@ class DashboardViewModel(
         _budgetWarnings.value = warnings  // INLINE
         _activeAlert.value = null
         checkForPatternAlerts()
+    }
+
+    private suspend fun hasRecentGoodBudgetAction(category: String): Boolean {
+        val since = System.currentTimeMillis() - 12L * 60 * 60 * 1000
+        return nudgeEventDao.getEventsSince(since).any {
+            it.type.equals("BUDGET_80", true) &&
+                    it.category == category &&
+                    it.action.equals("details", true)
+        }
     }
 
     private suspend fun checkForPatternAlerts() {
@@ -199,6 +250,9 @@ class DashboardViewModel(
             .filter { it.value.size >= 3 }
 
         merchantCounts.forEach { (merchant, expenses) ->
+            val since = getTodayTimestampStart()
+            if (nudgeEventDao.countDismissedSince("merchant_3x", merchant, since) > 0) return@forEach
+
             _activeAlert.value = BudgetAlert(
                 category = merchant,
                 percentage = 0,
@@ -315,6 +369,18 @@ class DashboardViewModel(
         }
     }
 
+    fun logGenericNudge(type: String, category: String, action: String?) {
+        viewModelScope.launch {
+            nudgeEventDao.insert(
+                NudgeEventEntity(
+                    type = type,
+                    category = category,
+                    action = action
+                )
+            )
+        }
+    }
+
     fun logAlertAction(ruleType: String, action: String) {
         viewModelScope.launch {
             nudgeEventDao.insert(
@@ -385,6 +451,7 @@ class DashboardViewModel(
         logAlertAction("pattern_$action", details)
     }
 
+
     suspend fun suggestPatternBudget(merchant: String): Double {
         val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
         val recent = expenseDao.getExpensesBetween(weekAgo, System.currentTimeMillis())
@@ -394,6 +461,14 @@ class DashboardViewModel(
             recent.takeLast(3).map { it.amount }.average() * 0.8  // ✅ .map { it.amount }
         } else {
             300.0
+        }
+    }
+
+    private val personalizationRepo = PersonalizationRepository(expenseDao, budgetRepo, nudgeEventDao)
+
+    private fun refreshPersonalizedInsights() {
+        viewModelScope.launch {
+            _personalizedInsights.value = personalizationRepo.computeInsightsForCurrentMonth()
         }
     }
 

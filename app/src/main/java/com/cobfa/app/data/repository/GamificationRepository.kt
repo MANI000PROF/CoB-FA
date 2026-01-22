@@ -10,6 +10,7 @@ import com.cobfa.app.data.local.dao.PointsDao
 import com.cobfa.app.data.local.entity.AchievementEntity
 import com.cobfa.app.data.local.entity.NudgeEventEntity
 import com.cobfa.app.data.local.entity.PointsEventEntity
+import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.domain.model.ExpenseType
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
@@ -22,7 +23,8 @@ class GamificationRepository(
     private val pointsDao: PointsDao,
     private val achievementDao: AchievementDao,
     private val budgetRepo: BudgetRepository,
-    private val expenseDao: ExpenseDao
+    private val expenseDao: ExpenseDao,
+    private val firestore: FirestoreService = FirestoreService()
 ) {
     fun observePointsBalance(): Flow<Int> = pointsDao.observePointsBalance()
     fun observeRecentPoints(): Flow<List<PointsEventEntity>> = pointsDao.observeRecentPoints(100)
@@ -38,7 +40,7 @@ class GamificationRepository(
         // Award points for each nudge event (idempotent via unique sourceNudgeId index).
         for (e in events) {
             val pe = pointsEventFromNudge(e) ?: continue
-            pointsDao.insert(pe)
+            awardPoints(pe)
         }
 
         // ✅ Delayed reward for merchant block success (award only after window ends AND no spend happened)
@@ -54,7 +56,7 @@ class GamificationRepository(
 
             if (!spent) {
                 // award once; idempotent via unique sourceNudgeId
-                pointsDao.insert(
+                awardPoints(
                     PointsEventEntity(
                         sourceNudgeId = e.id,
                         delta = 5,
@@ -84,9 +86,9 @@ class GamificationRepository(
         val hasWarnings = usages.any { it.alertsEnabled && it.percentageUsed >= 80 }
 
         if (!hasExceeded && !hasWarnings) {
-            pointsDao.insert(
+            awardPoints(
                 PointsEventEntity(
-                    sourceNudgeId = null,
+                    sourceNudgeId = ("UNDER_BUDGET_DAY:$todayKey").hashCode().toLong(),
                     delta = 10,
                     reason = REASON_UNDER_BUDGET_DAY,
                     details = todayKey
@@ -120,7 +122,7 @@ class GamificationRepository(
                             e.type.lowercase() in setOf("merchant_3x", "category_5x", "highvalue_3x")
                     ) -> {
                 PointsEventEntity(
-                    sourceNudgeId = e.id,
+                    sourceNudgeId = stableNudgeKeyForPoints(e).hashCode().toLong(),
                     delta = 5,
                     reason = REASON_IMPULSE_SKIPPED,
                     details = e.category
@@ -128,6 +130,27 @@ class GamificationRepository(
             }
 
             else -> null
+        }
+    }
+
+    private fun stableNudgeKeyForPoints(e: NudgeEventEntity): String {
+        val day = LocalDate.now(ZoneId.systemDefault()).toString()
+        val type = e.type.uppercase()
+        val cat = e.category.trim().lowercase()
+
+        // Only patterns should be capped; budget exceed should still be per actual overspend event (uses e.id)
+        return when {
+            type.startsWith("MERCHANT_") || type.startsWith("CATEGORY_") || type.startsWith("HIGHVALUE_") ->
+                "$day:$type:$cat"
+            else ->
+                "ID:${e.id}" // fallback to unique per-row for non-pattern nudges
+        }
+    }
+
+    private suspend fun awardPoints(event: PointsEventEntity) {
+        val rowId = pointsDao.insert(event)
+        if (rowId != -1L) {
+            firestore.incrementPublicPoints(event.delta)
         }
     }
 
