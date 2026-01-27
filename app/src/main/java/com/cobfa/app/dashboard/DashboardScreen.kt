@@ -4,9 +4,12 @@ import android.content.pm.PackageManager
 import android.Manifest
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +39,7 @@ import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.data.repository.SyncManager
+import com.cobfa.app.insights_ml.debug.MlDevPrefs
 import com.cobfa.app.sms.SmsFilters
 import com.cobfa.app.sms.SmsInboxReader
 import com.cobfa.app.sms.SmsProcessor
@@ -47,7 +51,7 @@ import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
 @RequiresApi(Build.VERSION_CODES.O)
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(
     navController: NavController,
@@ -182,7 +186,15 @@ fun DashboardScreen(
                 )
 
                 Spacer(Modifier.height(24.dp))
-                Text("Dashboard", style = MaterialTheme.typography.headlineSmall)
+                Text("Dashboard",
+                    modifier = Modifier.combinedClickable(
+                        onClick = { /* existing */ },
+                        onLongClick = {
+                            val enabled = MlDevPrefs.toggleRemoteAi(context)
+                            Toast.makeText(context, "Remote AI suggestions: $enabled", Toast.LENGTH_SHORT).show()
+                        }
+                    ),
+                    style = MaterialTheme.typography.headlineSmall)
 
                 // ✅ 4. CRITICAL 100% MODAL (only overspend)
                 activeAlert?.let { alert ->

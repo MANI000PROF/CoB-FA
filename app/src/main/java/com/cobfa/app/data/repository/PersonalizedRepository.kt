@@ -1,5 +1,6 @@
 package com.cobfa.app.data.repository
 
+import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.cobfa.app.data.local.dao.ExpenseDao
@@ -9,6 +10,7 @@ import com.cobfa.app.domain.model.ExpenseStatus
 import com.cobfa.app.domain.model.ExpenseType
 import com.cobfa.app.domain.model.InsightSeverity
 import com.cobfa.app.domain.model.PersonalizedInsight
+import com.cobfa.app.insights_ml.core.MlInsightsEngine
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -17,11 +19,13 @@ import kotlin.math.roundToInt
 
 @RequiresApi(Build.VERSION_CODES.O)
 class PersonalizationRepository(
+    private val context: Context,
     private val expenseDao: ExpenseDao,
     private val budgetRepo: BudgetRepository,
     private val nudgeDao: NudgeEventDao,
     private val zoneId: ZoneId = ZoneId.systemDefault()
 ) {
+    private val mlEngine = MlInsightsEngine(context, expenseDao, budgetRepo, nudgeDao, zoneId)
     suspend fun computeInsightsForCurrentMonth(): List<PersonalizedInsight> {
         val now = System.currentTimeMillis()
         val monthStart = monthStartMillis(now)
@@ -96,8 +100,12 @@ class PersonalizationRepository(
         topCategoryTrendingInsight(expenses)?.let { insights.add(it) }
 
         insights.addAll(budgetPaceInsights(monthStart).filterNotNull())
+        insights.addAll(mlEngine.computeMlInsights(now))
 
-        return insights.toList()
+        return insights.sortedWith(
+            compareByDescending<PersonalizedInsight> { it.key.startsWith("ml_") }
+                .thenByDescending { it.severity } // RISK before WARN/INFO
+        ).toList()
     }
 
     private fun weekendSpikeInsight(expenses: List<com.cobfa.app.data.local.entity.ExpenseEntity>): PersonalizedInsight? {

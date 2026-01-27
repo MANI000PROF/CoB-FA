@@ -15,8 +15,11 @@ import com.cobfa.app.data.repository.PersonalizationRepository
 import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.domain.model.PersonalizedInsight
+import com.cobfa.app.insights_ml.debug.DebugFlags
 import com.cobfa.app.utils.ExpenseLogger
 import com.cobfa.app.utils.PreferenceManager
+import com.cobfa.app.insights_ml.debug.SyntheticHistoryGenerator
+import com.github.mikephil.charting.BuildConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -96,6 +99,8 @@ class DashboardViewModel(
             checkForBudgetAlerts()
             refreshPersonalizedInsights()
         }
+        // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
+        //debugGenerateHistory(weeks = 12)
         startPeriodicSmsScanning()
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
@@ -232,8 +237,8 @@ class DashboardViewModel(
         val since = System.currentTimeMillis() - 12L * 60 * 60 * 1000
         return nudgeEventDao.getEventsSince(since).any {
             it.type.equals("BUDGET_80", true) &&
-                    it.category == category &&
-                    it.action.equals("details", true)
+                    it.category == normalizeCategoryKey(category) &&
+                    it.action == "details"
         }
     }
 
@@ -251,7 +256,11 @@ class DashboardViewModel(
 
         merchantCounts.forEach { (merchant, expenses) ->
             val since = getTodayTimestampStart()
-            if (nudgeEventDao.countDismissedSince("merchant_3x", merchant, since) > 0) return@forEach
+            val catKey = expenses.firstOrNull()?.category?.name ?: "UNKNOWN"
+            val merchantKey = normalizeMerchantKey(merchant)
+            val typeKey = "merchant_3x|$merchantKey"
+
+            if (nudgeEventDao.countDismissedSince(typeKey, catKey, since) > 0) return@forEach
 
             _activeAlert.value = BudgetAlert(
                 category = merchant,
@@ -260,7 +269,7 @@ class DashboardViewModel(
                 message = "$merchant (${expenses.size}x today) - Pattern detected!",
                 suggestedAction = "reduce_${merchant.lowercase()}"
             )
-            logNudgeEvent("merchant_3x", merchant)
+            logNudgeEvent(typeKey, catKey)
             return
         }
 
@@ -277,7 +286,7 @@ class DashboardViewModel(
                 ruleType = "CATEGORY_5X",
                 message = "$category (${expenses.size}x today) - Spending spree!"
             )
-            logNudgeEvent("category_5x", category)
+            logNudgeEvent("category_5x", normalizeCategoryKey(category))
             return
         }
 
@@ -296,7 +305,9 @@ class DashboardViewModel(
                 ruleType = "HIGHVALUE_3X",
                 message = "$merchant (₹${String.format("%.0f", total)} today) - Big spender alert!"
             )
-            logNudgeEvent("highvalue_3x", merchant)
+            val catKey = expenses.firstOrNull()?.category?.name ?: "UNKNOWN"
+            val merchantKey = normalizeMerchantKey(merchant)
+            logNudgeEvent("highvalue_3x|$merchantKey", catKey)
             return
         }
     }
@@ -328,7 +339,7 @@ class DashboardViewModel(
                     NudgeEventEntity(
                         type = alert.ruleType,
                         category = alert.category,
-                        action = action
+                        action = normalizeAction(action)
                     )
                 )
             }
@@ -357,12 +368,12 @@ class DashboardViewModel(
         return cal.timeInMillis
     }
 
-    private fun logNudgeEvent(type: String, details: String) {
+    private fun logNudgeEvent(type: String, category: String) {
         viewModelScope.launch {
             nudgeEventDao.insert(
                 NudgeEventEntity(
                     type = type,
-                    category = details,
+                    category = normalizeCategoryKey(category),
                     action = null
                 )
             )
@@ -374,8 +385,8 @@ class DashboardViewModel(
             nudgeEventDao.insert(
                 NudgeEventEntity(
                     type = type,
-                    category = category,
-                    action = action
+                    category = normalizeCategoryKey(category),
+                    action = normalizeAction(action)
                 )
             )
         }
@@ -386,8 +397,8 @@ class DashboardViewModel(
             nudgeEventDao.insert(
                 NudgeEventEntity(
                     type = ruleType,
-                    category = _activeAlert.value?.category ?: "unknown",
-                    action = action
+                    category = normalizeCategoryKey(_activeAlert.value?.category ?: "UNKNOWN"),
+                    action = normalizeAction(action)
                 )
             )
         }
@@ -464,11 +475,37 @@ class DashboardViewModel(
         }
     }
 
-    private val personalizationRepo = PersonalizationRepository(expenseDao, budgetRepo, nudgeEventDao)
+    private val personalizationRepo = PersonalizationRepository(context, expenseDao, budgetRepo, nudgeEventDao)
 
     private fun refreshPersonalizedInsights() {
         viewModelScope.launch {
             _personalizedInsights.value = personalizationRepo.computeInsightsForCurrentMonth()
+        }
+    }
+
+    private fun normalizeAction(action: String?): String? =
+        action?.trim()?.lowercase(Locale.ROOT)
+
+    private fun normalizeMerchantKey(raw: String?): String =
+        (raw ?: "UNKNOWN").trim().uppercase(Locale.ROOT)
+
+    private fun normalizeCategoryKey(raw: String?): String =
+        (raw ?: "UNKNOWN").trim().uppercase(Locale.ROOT)
+
+    fun debugGenerateHistory(weeks: Int = 12) {
+        if (DebugFlags.ENABLE_DEBUG_LOGS) return
+
+        viewModelScope.launch {
+            val prefs = context.getSharedPreferences("cobfa_ml", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("synthetic_history_done", false)) return@launch
+
+            SyntheticHistoryGenerator.generate(
+                expenseDao = expenseDao,
+                plan = SyntheticHistoryGenerator.Plan(weeks = weeks)
+            )
+
+            prefs.edit().putBoolean("synthetic_history_done", true).apply()
+            refreshPersonalizedInsights()
         }
     }
 

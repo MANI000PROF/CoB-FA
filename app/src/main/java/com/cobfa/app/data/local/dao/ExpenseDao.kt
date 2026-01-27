@@ -82,4 +82,17 @@ interface ExpenseDao {
         end: Long
     ): Double
 
+    @Query("""
+    SELECT * FROM expenses 
+    WHERE timestamp BETWEEN :start AND :end
+      AND status = 'CONFIRMED'
+      AND type = 'DEBIT'
+    ORDER BY timestamp ASC
+""")
+    suspend fun getConfirmedDebitsBetween(start: Long, end: Long): List<ExpenseEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(expenses: List<ExpenseEntity>): List<Long>
+
+
 }
