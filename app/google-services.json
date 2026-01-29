@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "369229653252",
+    "firebase_url": "https://cob-fa-c962f-default-rtdb.firebaseio.com",
     "project_id": "cob-fa-c962f",
     "storage_bucket": "cob-fa-c962f.firebasestorage.app"
   },
@@ -14,11 +15,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "369229653252-f59r53m24v4c1grqvec6dii0441893qe.apps.googleusercontent.com",
+          "client_id": "369229653252-8ujsfjpvc93kc1f2gqi2hbjaf6s2q0r3.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.cobfa.app",
-            "certificate_hash": "2fe5344c566a60101144d7cbb9305a580ab34391"
+            "certificate_hash": "65833c69dc239e7cf0796ea9806452f9215f2aa4"
           }
         },
         {

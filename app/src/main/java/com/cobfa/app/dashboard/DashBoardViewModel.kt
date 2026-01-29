@@ -95,12 +95,14 @@ class DashboardViewModel(
         viewModelScope.launch {
             syncManager.restoreFromFirestore()
             syncManager.restoreBudgetsFromFirestore()
+
+            // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
+//            debugGenerateHistory(weeks = 12)
+
             // Check alerts after restore
             checkForBudgetAlerts()
             refreshPersonalizedInsights()
         }
-        // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
-        //debugGenerateHistory(weeks = 12)
         startPeriodicSmsScanning()
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
@@ -493,18 +495,11 @@ class DashboardViewModel(
         (raw ?: "UNKNOWN").trim().uppercase(Locale.ROOT)
 
     fun debugGenerateHistory(weeks: Int = 12) {
-        if (DebugFlags.ENABLE_DEBUG_LOGS) return
-
         viewModelScope.launch {
-            val prefs = context.getSharedPreferences("cobfa_ml", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("synthetic_history_done", false)) return@launch
-
             SyntheticHistoryGenerator.generate(
                 expenseDao = expenseDao,
                 plan = SyntheticHistoryGenerator.Plan(weeks = weeks)
             )
-
-            prefs.edit().putBoolean("synthetic_history_done", true).apply()
             refreshPersonalizedInsights()
         }
     }

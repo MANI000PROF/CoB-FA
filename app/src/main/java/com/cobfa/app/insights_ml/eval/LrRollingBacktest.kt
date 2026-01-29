@@ -34,7 +34,7 @@ object LrRollingBacktest {
             val ys = trainRows.map { it.labelRepeatNextWeek }
 
             val model = LogRegSgd(dim = 6, lr = 0.05, l2 = 0.0005)
-            model.fit(xs, ys, epochs = 60)
+            model.fitWithHistory(xs, ys, epochs = 60)
 
             if (DebugFlags.ENABLE_DEBUG_LOGS && wi == minTrainWeeks) {
                 android.util.Log.d("ML_LR", "sample weights=" + model.weights().joinToString(prefix="[", postfix="]") { "%.3f".format(it) })

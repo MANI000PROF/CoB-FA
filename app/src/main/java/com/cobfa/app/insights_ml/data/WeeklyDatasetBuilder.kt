@@ -48,11 +48,11 @@ class WeeklyDatasetBuilder(
 
         val weekStarts = mutableListOf<Long>()
         run {
-            var d = Instant.ofEpochMilli(firstWeek).atZone(zoneId).toLocalDate()
-            val endD = Instant.ofEpochMilli(lastWeek).atZone(zoneId).toLocalDate()
-            while (!d.isAfter(endD)) {
-                weekStarts.add(d.atStartOfDay(zoneId).toInstant().toEpochMilli())
-                d = d.plusWeeks(1)
+            var w = firstWeek
+            while (w <= lastWeek) {
+                // Ensure this is always the canonical ISO week-start used everywhere else
+                weekStarts.add(TimeBucketing.isoWeekStartMillis(w, zoneId))
+                w += 7L * 24 * 60 * 60 * 1000
             }
         }
 
@@ -80,7 +80,7 @@ class WeeklyDatasetBuilder(
 
         for (weekStart in weekStarts) {
             val weekEndExclusive = weekStart + 7L * 24 * 60 * 60 * 1000
-            val nextWeekStart = weekEndExclusive
+            val nextWeekStart = TimeBucketing.isoWeekStartMillis(weekEndExclusive, zoneId)
             val nextWeekEndExclusive = nextWeekStart + 7L * 24 * 60 * 60 * 1000
 
             for (cat in allCategories) {
@@ -100,6 +100,9 @@ class WeeklyDatasetBuilder(
                 )
             }
         }
+        val positives = rows.count { it.labelRepeatNextWeek == 1 }
+        val total = rows.size
+        android.util.Log.d("ML_DATASET", "Weekly rows: total=$total positives=$positives posRate=${positives.toDouble()/total}")
         return rows
     }
 }

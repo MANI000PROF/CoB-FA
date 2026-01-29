@@ -17,28 +17,41 @@ class LogRegSgd(
         return sigmoid(z)
     }
 
-    fun fit(
+    fun fitWithHistory(
         xs: List<DoubleArray>,
         ys: List<Int>,
         epochs: Int = 50
-    ) {
-        if (xs.isEmpty()) return
+    ): List<Double> {
+        if (xs.isEmpty()) return emptyList()
+
+        val losses = ArrayList<Double>(epochs)
+
         for (e in 0 until epochs) {
+            var lossSum = 0.0
+
             for (i in xs.indices) {
                 val x = xs[i]
                 val y = ys[i].toDouble()
                 val p = predictProb(x)
-                val posWeight = 2.0 // simple constant; later: derive from class ratio
-                val wgt = if (y == 1.0) posWeight else 1.0
-                val err = (p - y) * wgt
 
+                // binary log loss
+                val pp = p.coerceIn(1e-9, 1.0 - 1e-9)
+                lossSum += -(y * kotlin.math.ln(pp) + (1.0 - y) * kotlin.math.ln(1.0 - pp))
+
+                // SGD update
+                val err = (p - y)
                 for (j in 0 until dim) {
                     val grad = err * x[j] + l2 * w[j]
                     w[j] -= lr * grad
                 }
             }
+
+            losses.add(lossSum / xs.size.toDouble())
         }
+
+        return losses
     }
+
 
     private fun sigmoid(z: Double): Double {
         // stable-ish sigmoid

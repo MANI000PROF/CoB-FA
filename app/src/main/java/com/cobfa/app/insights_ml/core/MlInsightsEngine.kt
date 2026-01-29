@@ -14,6 +14,7 @@ import com.cobfa.app.insights_ml.baselines.RfmRiskBaseline
 import com.cobfa.app.insights_ml.data.TimeBucketing
 import com.cobfa.app.insights_ml.data.WeeklyDatasetBuilder
 import com.cobfa.app.insights_ml.debug.DebugFlags
+import com.cobfa.app.insights_ml.eval.LrLearningCurve
 import com.cobfa.app.insights_ml.eval.LrRollingBacktest
 import com.cobfa.app.insights_ml.eval.RollingBacktest
 import com.cobfa.app.insights_ml.ml.LogRegSgd
@@ -45,6 +46,10 @@ class MlInsightsEngine(
 
         val dataset = WeeklyDatasetBuilder(zoneId).buildRows(expenses, nowMs)
         if (dataset.isEmpty()) return emptyList()
+
+        if (DebugFlags.ENABLE_DEBUG_LOGS) {
+            LrLearningCurve.runMultiWeekCurve(context, dataset, epochs = 60, k = 3, minTrainWeeks = 6)
+        }
 
         // ---- Debug backtests (kept here for now) ----
         if (DebugFlags.ENABLE_DEBUG_LOGS) {
@@ -97,7 +102,7 @@ class MlInsightsEngine(
                 val xs = trainRows.map { LrFeatures.toX(it) }
                 val ys = trainRows.map { it.labelRepeatNextWeek }
                 LogRegSgd(dim = 6, lr = 0.05, l2 = 0.0005).apply {
-                    fit(xs, ys, epochs = 60)
+                    fitWithHistory(xs, ys, epochs = 60)
                 }
             }
         } else null
