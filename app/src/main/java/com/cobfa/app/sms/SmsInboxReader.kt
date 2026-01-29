@@ -1,8 +1,7 @@
 package com.cobfa.app.sms
 
 import android.content.Context
-import android.net.Uri
-import android.util.Log
+import android.provider.Telephony
 
 data class RawSms(
     val address: String,
@@ -12,43 +11,34 @@ data class RawSms(
 
 object SmsInboxReader {
 
-    private const val TAG = "SMS_INBOX"
-
-    fun readRecentSms(
+    fun readRecentSmsSince(
         context: Context,
-        limit: Int = 20
+        sinceMs: Long,
+        limit: Int = 200
     ): List<RawSms> {
-
         val messages = mutableListOf<RawSms>()
-        val uri = Uri.parse("content://sms/inbox")
+
+        val selection = "${Telephony.Sms.DATE} > ?"
+        val selectionArgs = arrayOf(sinceMs.toString())
 
         val cursor = context.contentResolver.query(
-            uri,
-            arrayOf("address", "body", "date"),
-            null,
-            null,
-            "date DESC LIMIT $limit"
+            Telephony.Sms.Inbox.CONTENT_URI,
+            arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
+            selection,
+            selectionArgs,
+            "${Telephony.Sms.DATE} DESC"
         )
 
         cursor?.use {
-            val addressIdx = it.getColumnIndex("address")
-            val bodyIdx = it.getColumnIndex("body")
-            val dateIdx = it.getColumnIndex("date")
+            val addressIdx = it.getColumnIndex(Telephony.Sms.ADDRESS)
+            val bodyIdx = it.getColumnIndex(Telephony.Sms.BODY)
+            val dateIdx = it.getColumnIndex(Telephony.Sms.DATE)
 
-            while (it.moveToNext()) {
+            while (it.moveToNext() && messages.size < limit) {
                 val address = it.getString(addressIdx) ?: continue
                 val body = it.getString(bodyIdx) ?: continue
                 val date = it.getLong(dateIdx)
-
-                Log.d(TAG, "SMS from=$address body=$body")
-
-                messages.add(
-                    RawSms(
-                        address = address,
-                        body = body,
-                        timestamp = date
-                    )
-                )
+                messages.add(RawSms(address, body, date))
             }
         }
 

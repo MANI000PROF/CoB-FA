@@ -15,9 +15,10 @@ object SmsTransactionParser {
 
     private const val TAG = "SMS_PARSER"
 
-    private val amountRegex =
-        Pattern.compile("(rs\\.?|inr|₹)\\s*([0-9,]+(\\.\\d{1,2})?)",
-            Pattern.CASE_INSENSITIVE)
+    private val amountRegex = Pattern.compile(
+        """(?:rs|inr|₹)\s*[:.]?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)""",
+        Pattern.CASE_INSENSITIVE
+    )
 
     private val debitKeywords = listOf(
         "debit", "debited", "spent", "paid",
@@ -45,7 +46,7 @@ object SmsTransactionParser {
             return null
         }
 
-        val amount = matcher.group(2)
+        val amount = matcher.group(1)
             ?.replace(",", "")
             ?.toDoubleOrNull()
             ?: return null
@@ -232,13 +233,11 @@ object SmsTransactionParser {
      */
     private fun String.capitalizeWords(): String {
         return this.split(Regex("""\s+"""))
-            .filter { it.isNotEmpty() }
-            .map { word ->
-                if (word.length > 0) {
-                    word.uppercase() + word.substring(1).lowercase()
+            .filter { it.isNotEmpty() }.joinToString(" ") { word ->
+                if (word.isNotEmpty()) {
+                    word.take(1).uppercase() + word.substring(1).lowercase()
                 } else word
             }
-            .joinToString(" ")
     }
 
 }

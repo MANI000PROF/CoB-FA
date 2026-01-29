@@ -13,10 +13,6 @@ import com.cobfa.app.domain.model.PersonalizedInsight
 import com.cobfa.app.insights_ml.baselines.RfmRiskBaseline
 import com.cobfa.app.insights_ml.data.TimeBucketing
 import com.cobfa.app.insights_ml.data.WeeklyDatasetBuilder
-import com.cobfa.app.insights_ml.debug.DebugFlags
-import com.cobfa.app.insights_ml.eval.LrLearningCurve
-import com.cobfa.app.insights_ml.eval.LrRollingBacktest
-import com.cobfa.app.insights_ml.eval.RollingBacktest
 import com.cobfa.app.insights_ml.ml.LogRegSgd
 import com.cobfa.app.insights_ml.ml.LrExplain
 import com.cobfa.app.insights_ml.ml.LrFeatures
@@ -47,37 +43,37 @@ class MlInsightsEngine(
         val dataset = WeeklyDatasetBuilder(zoneId).buildRows(expenses, nowMs)
         if (dataset.isEmpty()) return emptyList()
 
-        if (DebugFlags.ENABLE_DEBUG_LOGS) {
-            LrLearningCurve.runMultiWeekCurve(context, dataset, epochs = 60, k = 3, minTrainWeeks = 6)
-        }
+//        if (DebugFlags.ENABLE_DEBUG_LOGS) {
+//            LrLearningCurve.runMultiWeekCurve(context, dataset, epochs = 60, k = 3, minTrainWeeks = 6)
+//        }
 
-        // ---- Debug backtests (kept here for now) ----
-        if (DebugFlags.ENABLE_DEBUG_LOGS) {
-            val rfmFull = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-                RfmRiskBaseline.score(row, useMoney = true, useBudget = true)
-            }
-            val rfmNoMoney = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-                RfmRiskBaseline.score(row, useMoney = false, useBudget = true)
-            }
-            val rfmNoBudget = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-                RfmRiskBaseline.score(row, useMoney = true, useBudget = false)
-            }
-
-            Log.d(
-                "ML_BACKTEST",
-                "weeks=${rfmFull.weeks} " +
-                        "RFM(full P@3=${"%.2f".format(rfmFull.precisionAtK)} R@3=${"%.2f".format(rfmFull.recallAtK)}) " +
-                        "RFM(-money P@3=${"%.2f".format(rfmNoMoney.precisionAtK)} R@3=${"%.2f".format(rfmNoMoney.recallAtK)}) " +
-                        "RFM(-budget P@3=${"%.2f".format(rfmNoBudget.precisionAtK)} R@3=${"%.2f".format(rfmNoBudget.recallAtK)})"
-            )
-
-            val lrBt = LrRollingBacktest.eval(dataset, k = 3, minTrainWeeks = 2)
-            Log.d(
-                "ML_BACKTEST",
-                "LR(weeks=${lrBt.weeks} P@3=${"%.2f".format(lrBt.precisionAtK)} R@3=${"%.2f".format(lrBt.recallAtK)})"
-            )
-        }
-        // --------------------------------------------
+//        // ---- Debug backtests (kept here for now) ----
+//        if (DebugFlags.ENABLE_DEBUG_LOGS) {
+//            val rfmFull = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
+//                RfmRiskBaseline.score(row, useMoney = true, useBudget = true)
+//            }
+//            val rfmNoMoney = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
+//                RfmRiskBaseline.score(row, useMoney = false, useBudget = true)
+//            }
+//            val rfmNoBudget = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
+//                RfmRiskBaseline.score(row, useMoney = true, useBudget = false)
+//            }
+//
+//            Log.d(
+//                "ML_BACKTEST",
+//                "weeks=${rfmFull.weeks} " +
+//                        "RFM(full P@3=${"%.2f".format(rfmFull.precisionAtK)} R@3=${"%.2f".format(rfmFull.recallAtK)}) " +
+//                        "RFM(-money P@3=${"%.2f".format(rfmNoMoney.precisionAtK)} R@3=${"%.2f".format(rfmNoMoney.recallAtK)}) " +
+//                        "RFM(-budget P@3=${"%.2f".format(rfmNoBudget.precisionAtK)} R@3=${"%.2f".format(rfmNoBudget.recallAtK)})"
+//            )
+//
+//            val lrBt = LrRollingBacktest.eval(dataset, k = 3, minTrainWeeks = 2)
+//            Log.d(
+//                "ML_BACKTEST",
+//                "LR(weeks=${lrBt.weeks} P@3=${"%.2f".format(lrBt.precisionAtK)} R@3=${"%.2f".format(lrBt.recallAtK)})"
+//            )
+//        }
+//        // --------------------------------------------
 
         val thisWeekStart = TimeBucketing.isoWeekStartMillis(nowMs, zoneId)
         val thisMonthStart = TimeBucketing.monthStartMillis(nowMs, zoneId)
@@ -176,7 +172,6 @@ class MlInsightsEngine(
                     daysSinceLast = r.daysSinceLast,
                     budgetUsagePct = r.budgetUsagePct
                 )
-                Log.d("ML_REMOTE_AI_PROMPT", prompt)
                 AlternativesCatalog.suggestionsFor(r.category, r.budgetUsagePct)
             } else {
                 AlternativesCatalog.suggestionsFor(r.category, r.budgetUsagePct)

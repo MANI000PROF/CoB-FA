@@ -91,7 +91,17 @@ fun DashboardScreen(
     }
 
     LaunchedEffect(autoTracking) {
-        if (autoTracking) performSmsScan(context, db)
+        if (!autoTracking) return@LaunchedEffect
+
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (granted) {
+            performSmsScan(context, db)
+        } else {
+            navController.navigate("sms_permission")
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -480,9 +490,22 @@ private suspend fun performSmsScan(
 
     val firestoreService = FirestoreService()
     val syncManager = SyncManager(db, firestoreService)
-
     val repo = ExpenseRepository(db.expenseDao(), syncManager)
-    val messages = SmsInboxReader.readRecentSms(context, limit = 50)
+
+    // ---- Incremental scan cursor (bootstrap + overlap) ----
+    val now = System.currentTimeMillis()
+    val lastTs0 = PreferenceManager.getLastSmsTimestamp(context)
+
+    // Bootstrap: if never scanned, start from last 90 days (bounded, safe for demo)
+    val bootstrapStart = now - 90L * 24 * 60 * 60 * 1000
+    val base = if (lastTs0 == 0L) bootstrapStart else lastTs0
+
+    // Overlap avoids missing messages around the boundary
+    val overlapMs = 2L * 60 * 60 * 1000
+    val since = (base - overlapMs).coerceAtLeast(0L)
+    // ------------------------------------------------------
+
+    val messages = SmsInboxReader.readRecentSmsSince(context, sinceMs = since, limit = 200)
     ExpenseLogger.logSmsRead(messages.size)
 
     var processedCount = 0
@@ -502,12 +525,12 @@ private suspend fun performSmsScan(
             syncManager = syncManager
         )
 
-        if (inserted) {
-            processedCount++
-        } else {
-            skippedCount++
-        }
+        if (inserted) processedCount++ else skippedCount++
     }
+
+    // IMPORTANT: advance cursor based on newest *seen* SMS, not only inserted ones
+    val newestTs = messages.maxOfOrNull { it.timestamp } ?: 0L
+    if (newestTs > 0) PreferenceManager.setLastSmsTimestamp(context, newestTs)
 
     ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
 }

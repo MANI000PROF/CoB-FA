@@ -28,6 +28,12 @@ fun SmsPermissionScreen(
         ) { granted ->
             PreferenceManager.setSmsPermissionGranted(context, granted)
             if (granted) {
+                val last = PreferenceManager.getLastSmsTimestamp(context)
+                if (last == 0L) {
+                    val now = System.currentTimeMillis()
+                    val bootstrap = now - 90L * 24 * 60 * 60 * 1000
+                    PreferenceManager.setLastSmsTimestamp(context, bootstrap)
+                }
                 onPermissionGranted()
             }
         }
