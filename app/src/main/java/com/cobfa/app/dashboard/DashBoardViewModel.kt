@@ -103,7 +103,6 @@ class DashboardViewModel(
             checkForBudgetAlerts()
             refreshPersonalizedInsights()
         }
-        startPeriodicSmsScanning()
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
             var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
@@ -149,32 +148,6 @@ class DashboardViewModel(
                 ExpenseLogger.logDatabaseError("refreshSms", e.message ?: "Unknown error")
             } finally {
                 _isRefreshing.value = false
-            }
-        }
-    }
-
-    /**
-     * Start periodic SMS scanning in background (every 10 seconds).
-     * Runs silently without showing refresh indicator.
-     * Auto-stops when ViewModel is cleared.
-     */
-    private fun startPeriodicSmsScanning() {
-        viewModelScope.launch {
-            while (true) {
-                try {
-                    // Wait 10 seconds before scanning
-                    delay(10000)
-
-                    // Call the SMS scan function from UI layer
-                    onRefreshRequest()
-
-                } catch (e: Exception) {
-                    ExpenseLogger.logDatabaseError(
-                        "periodicScan",
-                        e.message ?: "Unknown error"
-                    )
-                    // Continue scanning even if one iteration fails
-                }
             }
         }
     }

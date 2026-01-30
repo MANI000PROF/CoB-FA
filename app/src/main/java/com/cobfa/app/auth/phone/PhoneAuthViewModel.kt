@@ -9,7 +9,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.*
-import kotlinx.coroutines.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class PhoneAuthViewModel : ViewModel() {
@@ -22,13 +23,13 @@ class PhoneAuthViewModel : ViewModel() {
 
     private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
 
-    var isLoading: Boolean = false
+    var isLoading by mutableStateOf(false)
         private set
 
-    var errorMessage: String? = null
+    var errorMessage by mutableStateOf<String?>(null)
         private set
 
-    var detectedPhoneNumber: String? = null
+    var detectedPhoneNumber by mutableStateOf<String?>(null)
         private set
 
     private val TAG = "PhoneAuthVM"
@@ -36,6 +37,9 @@ class PhoneAuthViewModel : ViewModel() {
     var resendCooldown by mutableStateOf(0)
         private set
 
+    fun clearError() {
+        errorMessage = null
+    }
 
     fun startPhoneVerification(
         phoneNumber: String,
@@ -45,31 +49,32 @@ class PhoneAuthViewModel : ViewModel() {
     ) {
         isLoading = true
         errorMessage = null
-        Log.d(TAG, "startPhoneVerification called with phone=$phoneNumber")
+        Log.d(TAG, "startPhoneVerification called")
+
         lastPhoneNumber = phoneNumber
 
         val options = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(phoneNumber) // must be E.164
+            .setPhoneNumber(phoneNumber)
             .setTimeout(60L, TimeUnit.SECONDS)
             .setActivity(activity)
             .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
 
                 override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                    Log.d(TAG, "onVerificationCompleted (auto OTP)")
+                    Log.d(TAG, "onVerificationCompleted")
                     signInWithCredential(credential, onVerified)
                 }
 
                 override fun onVerificationFailed(e: FirebaseException) {
                     Log.e(TAG, "onVerificationFailed: ${e.message}")
                     isLoading = false
-                    errorMessage = e.message
+                    errorMessage = e.message ?: "Verification failed"
                 }
 
                 override fun onCodeSent(
                     id: String,
                     token: PhoneAuthProvider.ForceResendingToken
                 ) {
-                    Log.d(TAG, "onCodeSent: verificationId=$id")
+                    Log.d(TAG, "onCodeSent")
                     startResendCooldown()
                     isLoading = false
                     verificationId = id
@@ -91,7 +96,7 @@ class PhoneAuthViewModel : ViewModel() {
         val phone = detectedPhoneNumber ?: fallbackPhone
 
         if (phone == null) {
-            errorMessage = "Unable to detect phone number"
+            errorMessage = "Enter a valid phone number"
             return
         }
 
@@ -107,11 +112,18 @@ class PhoneAuthViewModel : ViewModel() {
         otp: String,
         onVerified: () -> Unit
     ) {
-        Log.d(TAG, "verifyOtp called, otp=$otp, verificationId=$verificationId")
-        val id = verificationId ?: return
-        requireNotNull(verificationId) {
-            "verifyOtp called but verificationId is null"
+        clearError()
+        val id = verificationId
+        if (id.isNullOrBlank()) {
+            errorMessage = "Verification session expired. Please resend OTP."
+            return
         }
+        if (otp.length < 6) {
+            errorMessage = "Enter the 6-digit OTP"
+            return
+        }
+
+        Log.d(TAG, "verifyOtp called")
         val credential = PhoneAuthProvider.getCredential(id, otp)
         signInWithCredential(credential, onVerified)
     }
@@ -120,7 +132,7 @@ class PhoneAuthViewModel : ViewModel() {
         activity: Activity,
         onCodeSent: () -> Unit
     ) {
-        Log.d(TAG, "resendOtp called, resendToken=$resendToken")
+        clearError()
 
         val token = resendToken ?: run {
             errorMessage = "Resend not available yet"
@@ -141,13 +153,11 @@ class PhoneAuthViewModel : ViewModel() {
 
                 override fun onVerificationCompleted(credential: PhoneAuthCredential) {
                     Log.d(TAG, "Auto verification completed during resend")
-                    signInWithCredential(credential) {
-                        // do nothing here, navigation already on OTP
-                    }
+                    signInWithCredential(credential) { /* stay on OTP screen */ }
                 }
 
                 override fun onVerificationFailed(e: FirebaseException) {
-                    errorMessage = e.message
+                    errorMessage = e.message ?: "Resend failed"
                 }
 
                 override fun onCodeSent(
@@ -173,7 +183,6 @@ class PhoneAuthViewModel : ViewModel() {
 
     private fun startResendCooldown() {
         resendCooldown = 60
-
         viewModelScope.launch {
             while (resendCooldown > 0) {
                 delay(1000)
@@ -186,6 +195,7 @@ class PhoneAuthViewModel : ViewModel() {
         credential: PhoneAuthCredential,
         onVerified: () -> Unit
     ) {
+        isLoading = true
         auth.signInWithCredential(credential)
             .addOnSuccessListener {
                 isLoading = false
@@ -193,7 +203,7 @@ class PhoneAuthViewModel : ViewModel() {
             }
             .addOnFailureListener {
                 isLoading = false
-                errorMessage = it.message
+                errorMessage = it.message ?: "Sign-in failed"
             }
     }
 }

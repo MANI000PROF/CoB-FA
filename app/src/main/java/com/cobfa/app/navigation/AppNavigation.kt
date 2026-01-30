@@ -138,6 +138,10 @@ fun AppNavigation() {
             )
         }
 
+        composable("settings") {
+            com.cobfa.app.ui.settings.SettingsScreen(navController)
+        }
+
         composable("analytics") {
             val context = LocalContext.current
             val db = remember { ExpenseDatabase.getInstance(context) }

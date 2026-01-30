@@ -53,6 +53,18 @@ fun ProfileSetupScreen(
     val linkVm: AccountLinkViewModel = viewModel()
     val focusManager = LocalFocusManager.current
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var profileError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(linkVm.errorMessage, profileError) {
+        val msg = linkVm.errorMessage ?: profileError
+        if (!msg.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(msg)
+            profileError = null
+        }
+    }
+
     val profileVm: ProfileViewModel = viewModel()
 
     var googleLinked by rememberSaveable { mutableStateOf(false) }
@@ -67,8 +79,6 @@ fun ProfileSetupScreen(
     var city by rememberSaveable { mutableStateOf("") }
     var state by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
-
-    var profileError by rememberSaveable { mutableStateOf<String?>(null) }
 
     var autoTrackingEnabled by rememberSaveable { mutableStateOf(false) }
 
@@ -136,238 +146,283 @@ fun ProfileSetupScreen(
         ).show()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp)
-    ) {
-
-        Text(
-            text = "Complete your profile",
-            style = MaterialTheme.typography.headlineSmall
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        // Google Linking (MANDATORY)
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !googleLinked,
-            onClick = {
-                val client = GoogleSignInHelper.getClient(activity)
-                client.signOut().addOnCompleteListener {
-                    googleLauncher.launch(client.signInIntent)
-                }
-            }
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("Complete profile") })
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp)
         ) {
-            Text(if (googleLinked) "Google Account Linked" else "Continue with Google")
-        }
+            // (keep existing content inside)
+            Text(
+                text = "Complete your profile",
+                style = MaterialTheme.typography.headlineSmall
+            )
 
-        Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Privacy: Insights run on-device. Firebase is used for backup sync. Raw SMS bodies are never uploaded.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-        // Name
-        OutlinedTextField(
-            value = name,
-            onValueChange = { newValue ->
-                name = newValue
-            },
-            label = { Text("Full Name") },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = googleLinked,
-            singleLine = true
-        )
+            Spacer(Modifier.height(24.dp))
 
-        // User Name
-        Spacer(Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username (unique, set once)") },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = googleLinked,
-            singleLine = true,
-            supportingText = { Text("3–15 chars: a-z, 0-9, underscore") }
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        // DOB
-        OutlinedTextField(
-            value = dob,
-            onValueChange = {},
-            label = { Text("Date of Birth") },
-            modifier = Modifier.fillMaxWidth(),
-            readOnly = true,
-            enabled = googleLinked,
-            trailingIcon = {
-                IconButton(onClick = { openDatePicker() }) {
-                    Icon(
-                        imageVector = Icons.Default.CalendarToday,
-                        contentDescription = "Select DOB"
-                    )
+            // Google Linking (MANDATORY)
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !googleLinked,
+                onClick = {
+                    val client = GoogleSignInHelper.getClient(activity)
+                    client.signOut().addOnCompleteListener {
+                        googleLauncher.launch(client.signInIntent)
+                    }
                 }
+            ) {
+                Text(if (googleLinked) "Google Account Linked" else "Continue with Google")
             }
-        )
 
-        //Age
-        age?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Age: $it years",
-                color = if (ageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-            )
-        }
-        if (ageError) {
-            Text(
-                text = "You must be at least 18 years old to use this app",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            Spacer(Modifier.height(24.dp))
 
-        Spacer(Modifier.height(32.dp))
-
-        // City (searchable dropdown over a small suggestion list)
-        val citySuggestions = remember(state) { CITIES_BY_STATE[state].orEmpty() }
-        var cityExpanded by rememberSaveable { mutableStateOf(false) }
-        val filteredCities = remember(city, citySuggestions) {
-            if (city.isBlank()) citySuggestions
-            else citySuggestions.filter { it.contains(city.trim(), ignoreCase = true) }
-        }
-        var stateExpanded by rememberSaveable { mutableStateOf(false) }
-
-        // State (fixed dropdown)
-        ExposedDropdownMenuBox(
-            expanded = stateExpanded,
-            onExpandedChange = { if (googleLinked) stateExpanded = !stateExpanded }
-        ) {
+            // Name
             OutlinedTextField(
-                value = state,
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("State") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor(),
+                value = name,
+                onValueChange = { newValue ->
+                    name = newValue
+                },
+                label = { Text("Full Name") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = googleLinked,
+                singleLine = true
+            )
+
+            // User Name
+            Spacer(Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = { raw ->
+                    username = raw
+                        .lowercase()
+                        .replace(" ", "_")
+                        .filter { it.isLetterOrDigit() || it == '_' }
+                        .take(15)
+                },
+                label = { Text("Username (unique, set once)") },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = googleLinked,
                 singleLine = true,
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded) }
+                supportingText = { Text("3–15 chars: a-z, 0-9, underscore") }
             )
 
-            ExposedDropdownMenu(
-                expanded = stateExpanded,
-                onDismissRequest = { stateExpanded = false }
-            ) {
-                INDIA_STATES_UTS.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option) },
-                        onClick = {
-                            state = option
-                            city = ""
-                            stateExpanded = false
-                        }
-                    )
-                }
-            }
-        }
+            Spacer(Modifier.height(16.dp))
 
-        Spacer(Modifier.height(16.dp))
-
-        // City (fixed dropdown)
-        ExposedDropdownMenuBox(
-            expanded = cityExpanded && filteredCities.isNotEmpty(),
-            onExpandedChange = { if (googleLinked && state.isNotBlank()) cityExpanded = !cityExpanded }
-        ) {
+            // DOB
             OutlinedTextField(
-                value = city,
-                onValueChange = {
-                    city = it
-                    if (googleLinked && state.isNotBlank()) cityExpanded = true
-                },
-                label = { Text("City (residential)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor(),
-                enabled = googleLinked && state.isNotBlank(),
-                singleLine = true,
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cityExpanded) }
+                value = dob,
+                onValueChange = {},
+                label = { Text("Date of Birth") },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                enabled = googleLinked,
+                trailingIcon = {
+                    IconButton(onClick = { openDatePicker() }) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select DOB"
+                        )
+                    }
+                }
             )
 
-            ExposedDropdownMenu(
-                expanded = cityExpanded && filteredCities.isNotEmpty(),
-                onDismissRequest = { cityExpanded = false }
+            //Age
+            age?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Age: $it years",
+                    color = if (ageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+            }
+            if (ageError) {
+                Text(
+                    text = "You must be at least 18 years old to use this app",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            // City (searchable dropdown over a small suggestion list)
+            val citySuggestions = remember(state) { CITIES_BY_STATE[state].orEmpty() }
+            var cityExpanded by rememberSaveable { mutableStateOf(false) }
+            val filteredCities = remember(city, citySuggestions) {
+                if (city.isBlank()) citySuggestions
+                else citySuggestions.filter { it.contains(city.trim(), ignoreCase = true) }
+            }
+            var stateExpanded by rememberSaveable { mutableStateOf(false) }
+
+            // State (fixed dropdown)
+            ExposedDropdownMenuBox(
+                expanded = stateExpanded,
+                onExpandedChange = { if (googleLinked) stateExpanded = !stateExpanded }
             ) {
-                filteredCities.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option) },
-                        onClick = {
-                            city = option
-                            cityExpanded = false
+                OutlinedTextField(
+                    value = state,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("State") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    enabled = googleLinked,
+                    singleLine = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = stateExpanded,
+                    onDismissRequest = { stateExpanded = false }
+                ) {
+                    INDIA_STATES_UTS.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                state = option
+                                city = ""
+                                stateExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // City (fixed dropdown)
+            ExposedDropdownMenuBox(
+                expanded = cityExpanded && filteredCities.isNotEmpty(),
+                onExpandedChange = {
+                    if (googleLinked && state.isNotBlank()) cityExpanded = !cityExpanded
+                }
+            ) {
+                OutlinedTextField(
+                    value = city,
+                    onValueChange = {
+                        city = it
+                        if (googleLinked && state.isNotBlank()) cityExpanded = true
+                    },
+                    label = { Text("City (residential)") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(),
+                    enabled = googleLinked && state.isNotBlank(),
+                    singleLine = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cityExpanded) }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = cityExpanded && filteredCities.isNotEmpty(),
+                    onDismissRequest = { cityExpanded = false }
+                ) {
+                    filteredCities.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                city = option
+                                cityExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Expense tracking (optional)",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "If enabled, CoBFA will scan your SMS inbox only when you open the app or pull to refresh. No background interception.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Enable auto-tracking")
+                        Switch(
+                            checked = autoTrackingEnabled,
+                            enabled = googleLinked,
+                            onCheckedChange = { autoTrackingEnabled = it }
+                        )
+                    }
+                }
+            }
+
+            // Continue
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = googleLinked &&
+                        name.text.isNotBlank() &&
+                        dob.isNotBlank() &&
+                        age != null &&
+                        age!! >= 18 && city.isNotBlank() && state.isNotBlank() && username.isNotBlank(),
+                onClick = {
+                    focusManager.clearFocus(force = true)
+
+                    PreferenceManager.setAutoTrackingEnabled(
+                        context = context,
+                        enabled = autoTrackingEnabled
+                    )
+
+                    profileError = null
+
+                    profileVm.saveProfile(
+                        name = name.text,
+                        dob = dob,
+                        age = age!!,
+                        city = city,
+                        state = state,
+                        username = username,
+                        onSuccess = {
+                            onProfileCompleted()
+                        },
+                        onError = { error ->
+                            profileError = error
                         }
                     )
                 }
+            ) {
+                Text("Continue")
+            }
+
+            linkVm.errorMessage?.let {
+                Spacer(Modifier.height(16.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
+            }
+
+            profileError?.let {
+                Spacer(Modifier.height(16.dp))
+                Text(it, color = MaterialTheme.colorScheme.error)
             }
         }
-
-        // Continue
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = googleLinked &&
-                    name.text.isNotBlank() &&
-                    dob.isNotBlank() &&
-                    age != null &&
-                    age!! >= 18 && city.isNotBlank() && state.isNotBlank() && username.isNotBlank(),
-            onClick = {
-                focusManager.clearFocus(force = true)
-
-                PreferenceManager.setAutoTrackingEnabled(
-                    context = context,
-                    enabled = autoTrackingEnabled
-                )
-
-                profileError = null
-
-                profileVm.saveProfile(
-                    name = name.text,
-                    dob = dob,
-                    age = age!!,
-                    city = city,
-                    state = state,
-                    username = username,
-                    onSuccess = {
-                        onProfileCompleted()
-                    },
-                    onError = { error ->
-                        profileError = error
-                    }
-                )
-            }
-        ) {
-            Text("Continue")
-        }
-
-        linkVm.errorMessage?.let {
-            Spacer(Modifier.height(16.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
-
-        profileError?.let {
-            Spacer(Modifier.height(16.dp))
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
-    }
-
-    //SMS tracking permission
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text("Enable automatic expense tracking")
-        Switch(
-            checked = autoTrackingEnabled,
-            onCheckedChange = { autoTrackingEnabled = it }
-        )
     }
 }

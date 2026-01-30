@@ -136,15 +136,26 @@ class FirestoreService {
         return try {
             val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
             val key = username.trim().lowercase()
-
             val ref = db.collection("usernames").document(key)
 
             db.runTransaction { tx ->
                 val snap = tx.get(ref)
                 if (snap.exists()) {
-                    throw IllegalStateException("Username taken")
+                    val ownerUid = snap.getString("uid")
+                    if (ownerUid == uid) {
+                        // Already claimed by this user -> idempotent success
+                        return@runTransaction null
+                    } else {
+                        throw IllegalStateException("Username taken")
+                    }
                 }
-                tx.set(ref, mapOf("uid" to uid, "createdAt" to System.currentTimeMillis()))
+                tx.set(
+                    ref,
+                    mapOf(
+                        "uid" to uid,
+                        "createdAt" to System.currentTimeMillis()
+                    )
+                )
                 null
             }.await()
 
