@@ -56,7 +56,12 @@ object SmsProcessor {
 
         // ✅ Insert with proper logging
         return try {
-            val insertedId = repo.insertExpense(finalExpense)  // ✅ Get REAL ID from Room
+            val insertedId = repo.insertExpense(finalExpense)
+            if (insertedId == -1L) {
+                ExpenseLogger.logSmsDuplicate(smsHash)
+                return false
+            }
+
             ExpenseLogger.logSmsInserted(
                 smsHash,
                 finalExpense.amount,
@@ -64,12 +69,9 @@ object SmsProcessor {
                 finalExpense.status.name
             )
 
-            // ✅ NEW: Auto-backup CONFIRMED credits to Firestore
             if (finalExpense.status == ExpenseStatus.CONFIRMED) {
                 syncManager?.syncConfirmedExpense(insertedId)
-                Log.d(TAG, "Auto-backed up credit expense $insertedId to Firestore")
             }
-
             true
         } catch (e: Exception) {
             ExpenseLogger.logSmsInsertError(smsHash, e.message ?: "Unknown error")

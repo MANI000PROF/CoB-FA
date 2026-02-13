@@ -33,10 +33,10 @@ interface ExpenseDao {
     fun getExpensesByStatus(status: ExpenseStatus): Flow<List<ExpenseEntity>>
 
     @Query("UPDATE expenses SET status = :status WHERE id = :id")
-    suspend fun updateStatus(id: Long, status: ExpenseStatus)
+    suspend fun updateStatus(id: Long, status: ExpenseStatus): Int
 
     @Query("UPDATE expenses SET status = :status, category = :category WHERE id = :id")
-    suspend fun confirmExpense(id: Long, category: ExpenseCategory, status: ExpenseStatus)
+    suspend fun confirmExpense(id: Long, category: ExpenseCategory, status: ExpenseStatus): Int
 
     @Query("SELECT * FROM expenses WHERE timestamp BETWEEN :start AND :end AND status = 'CONFIRMED'")
     suspend fun getExpensesBetween(start: Long, end: Long): List<ExpenseEntity>
@@ -94,5 +94,21 @@ interface ExpenseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(expenses: List<ExpenseEntity>): List<Long>
 
+    @androidx.room.Transaction
+    suspend fun confirmExpenseSafe(id: Long, category: ExpenseCategory): Int {
+        // Optional: verify it exists first (better logs)
+        val existing = getExpenseById(id) ?: return 0
+        if (existing.status == ExpenseStatus.CONFIRMED) return 1
+        return confirmExpense(id, category, ExpenseStatus.CONFIRMED)
+    }
 
+    @Query("UPDATE expenses SET status = :status, category = :category WHERE smsHash = :smsHash")
+    suspend fun confirmExpenseBySmsHash(
+        smsHash: String,
+        category: ExpenseCategory,
+        status: ExpenseStatus = ExpenseStatus.CONFIRMED
+    ): Int
+
+    @Query("SELECT * FROM expenses WHERE smsHash = :smsHash LIMIT 1")
+    suspend fun getExpenseBySmsHash(smsHash: String): ExpenseEntity?
 }

@@ -11,9 +11,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.cobfa.app.auth.session.DeviceId
+import com.cobfa.app.auth.session.SessionWriter
 import com.cobfa.app.utils.PhoneNumberFormatter
 import com.cobfa.app.utils.PhoneNumberResolver
 import com.cobfa.app.utils.SimInfoUtil
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 
 private const val ENABLE_SIM_AUTO_DETECT = false
@@ -134,7 +137,18 @@ fun PhoneAuthScreen(
                         activity = activity,
                         fallbackPhone = fallback,
                         onCodeSent = { navController.navigate("otp") },
-                        onVerified = { navController.navigate("profile") }
+                        onVerified = {
+                            val user = FirebaseAuth.getInstance().currentUser
+                            if (user == null) {
+                                navController.navigate("profile")
+                                return@startVerificationWithFallback
+                            }
+
+                            val deviceId = DeviceId.get(context)
+                            SessionWriter.write(user.uid, deviceId) {
+                                navController.navigate("profile")
+                            }
+                        }
                     )
                 }
             ) {

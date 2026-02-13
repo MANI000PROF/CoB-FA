@@ -12,9 +12,9 @@ class PendingExpensesViewModel(
 
     val pendingExpenses = repo.getPendingExpenses()
 
-    fun confirm(id: Long, category: ExpenseCategory) {
+    fun confirmBySmsHash(smsHash: String, category: ExpenseCategory) {
         viewModelScope.launch {
-            repo.confirmExpense(id, category)
+            repo.confirmExpenseBySmsHash(smsHash, category)
         }
     }
 }

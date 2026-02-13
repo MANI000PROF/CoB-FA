@@ -33,46 +33,19 @@ class ExpenseRepository(
         ExpenseLogger.logConfirmationStart(id)
 
         try {
-            // Validate category
-            if (category == null) {
-                throw IllegalArgumentException("Category cannot be null for confirmation")
+            val updated = expenseDao.confirmExpenseSafe(id, category)
+            if (updated <= 0) {
+                ExpenseLogger.logConfirmationError(id, "DB update affected 0 rows (missing id or mismatch)")
+                return
             }
 
-            // ✅ Confirm atomically (single transaction)
-            confirmExpenseAtomic(id, category)
-
             ExpenseLogger.logConfirmationComplete(id, category.name, ExpenseStatus.CONFIRMED.name)
-
-            // ✅ NEW: Sync to Firestore immediately after confirmation
             syncManager?.syncConfirmedExpense(id)
 
         } catch (e: Exception) {
             ExpenseLogger.logConfirmationError(id, e.message ?: "Unknown error")
             throw e
         }
-    }
-
-
-    /**
-     * Atomically confirm an expense.
-     * Single database transaction ensures no partial updates.
-     */
-    @Transaction
-    private suspend fun confirmExpenseAtomic(id: Long, category: ExpenseCategory) {
-        // ✅ INLINE the query - keeps transaction context intact
-        // Step 1: Get current expense (MUST be inside @Transaction block)
-        val expense = expenseDao.getExpenseById(id)
-            ?: throw IllegalArgumentException("Expense with id=$id not found")
-
-        // Step 2: Validate current state (prevent re-confirmation)
-        if (expense.status == ExpenseStatus.CONFIRMED) {
-            ExpenseLogger.logConfirmationAlreadyDone(id)
-            return
-        }
-
-        // Step 3: Update atomically
-        // ✅ This is now in the SAME transaction as the read
-        expenseDao.confirmExpense(id, category, ExpenseStatus.CONFIRMED)
     }
 
     // ✅ NEW: Helper method for validation
@@ -93,10 +66,6 @@ class ExpenseRepository(
         return expenseDao.getExpensesByStatus(ExpenseStatus.CONFIRMED)
     }
 
-    /**
-     * Get total DEBIT spending for a category within date range.
-     * Used for budget progress calculation.
-     */
     suspend fun getSpentAmountByCategory(
         category: ExpenseCategory,
         start: Long,
@@ -105,5 +74,26 @@ class ExpenseRepository(
         return expenseDao.getSpentAmountByCategory(category, start, end)
     }
 
+    suspend fun confirmExpenseBySmsHash(smsHash: String, category: ExpenseCategory) {
+        ExpenseLogger.logConfirmationStart(-1)
 
+        val updated = expenseDao.confirmExpenseBySmsHash(
+            smsHash = smsHash,
+            category = category,
+            status = ExpenseStatus.CONFIRMED
+        )
+
+        if (updated <= 0) {
+            ExpenseLogger.logConfirmationError(-1, "No row updated for smsHash=$smsHash")
+            return
+        }
+
+        val confirmed = expenseDao.getExpenseBySmsHash(smsHash)
+        if (confirmed != null) {
+            ExpenseLogger.logConfirmationComplete(confirmed.id, category.name, ExpenseStatus.CONFIRMED.name)
+            syncManager?.syncConfirmedExpense(confirmed.id)
+        } else {
+            ExpenseLogger.logConfirmationError(-1, "Confirmed row not found after update for smsHash=$smsHash")
+        }
+    }
 }

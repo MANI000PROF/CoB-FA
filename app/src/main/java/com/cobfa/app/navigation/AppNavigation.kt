@@ -3,6 +3,7 @@ package com.cobfa.app.navigation
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -20,6 +21,8 @@ import com.cobfa.app.auth.otp.OtpScreen
 import com.cobfa.app.auth.phone.PhoneAuthScreen
 import com.cobfa.app.auth.phone.PhoneAuthViewModel
 import com.cobfa.app.auth.profile.ProfileSetupScreen
+import com.cobfa.app.auth.session.DeviceId
+import com.cobfa.app.auth.session.SingleDeviceEnforcer
 import com.cobfa.app.dashboard.AchievementsViewModel
 import com.cobfa.app.dashboard.AnalyticsViewModel
 import com.cobfa.app.dashboard.DashboardScreen
@@ -35,6 +38,7 @@ import com.cobfa.app.ui.expense.list.ExpenseListViewModelFactory
 import com.cobfa.app.ui.leaderboard.LeaderboardScreen
 import com.cobfa.app.ui.permission.SmsPermissionScreen
 import com.cobfa.app.utils.PreferenceManager
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.tasks.await
 
@@ -128,12 +132,32 @@ fun AppNavigation() {
         }
 
         composable("dashboard") {
+            val context = LocalContext.current
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            val deviceId = remember { DeviceId.get(context) }
+
+            DisposableEffect(uid) {
+                if (uid == null) return@DisposableEffect onDispose { }
+
+                val enforcer = SingleDeviceEnforcer(
+                    uid = uid,
+                    localDeviceId = deviceId,
+                    onKicked = {
+                        navController.navigate("auth") {
+                            popUpTo(0)
+                            launchSingleTop = true
+                        }
+                    }
+                )
+                enforcer.start()
+                onDispose { enforcer.stop() }
+            }
+
             DashboardScreen(
                 navController = navController,
                 onLogout = {
-                    navController.navigate("auth") {
-                        popUpTo(0)
-                    }
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("auth") { popUpTo(0) }
                 }
             )
         }

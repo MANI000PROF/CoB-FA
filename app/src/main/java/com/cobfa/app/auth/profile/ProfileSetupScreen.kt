@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.auth.link.AccountLinkViewModel
 import com.cobfa.app.auth.link.GoogleSignInHelper
+import com.cobfa.app.auth.session.DeviceId
 import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import java.util.*
@@ -56,6 +57,7 @@ fun ProfileSetupScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var profileError by rememberSaveable { mutableStateOf<String?>(null) }
+    val deviceId = remember { DeviceId.get(context) }
 
     LaunchedEffect(linkVm.errorMessage, profileError) {
         val msg = linkVm.errorMessage ?: profileError
@@ -92,7 +94,7 @@ fun ProfileSetupScreen(
                 onSuccess = { token ->
                     Log.d("ProfileSetup", "Google ID token received (length=${token.length})")
 
-                    linkVm.linkGoogleAccount(token) { displayName ->
+                    linkVm.linkGoogleAccount(token, deviceId) { displayName ->
                         Log.d("ProfileSetup", "Firebase link success, name=$displayName")
                         googleLinked = true
                         val user = FirebaseAuth.getInstance().currentUser

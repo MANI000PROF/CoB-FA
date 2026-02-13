@@ -492,7 +492,8 @@ fun PendingExpensesSectionScrollable(vm: PendingExpensesViewModel) {
                 if (selectedExpenseId == e.id) {
                     com.cobfa.app.ui.expense.list.CategoryPickerBottomSheet(
                         onCategorySelected = { category ->
-                            vm.confirm(e.id, category)
+                            val hash = e.smsHash
+                            if (hash != null) vm.confirmBySmsHash(hash, category)
                             selectedExpenseId = null
                         },
                         onDismiss = { selectedExpenseId = null }
