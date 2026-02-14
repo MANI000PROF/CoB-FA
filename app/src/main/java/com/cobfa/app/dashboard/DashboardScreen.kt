@@ -140,7 +140,6 @@ fun DashboardScreen(
                         AlertBanner(
                             alert = alert,
                             onDismiss = {
-                                vm.logAlertAction(alert.ruleType, "dismiss")
                                 vm.onAlertDismissed()
                             },
                             onAction = { showPatternActions = true }
@@ -177,9 +176,9 @@ fun DashboardScreen(
                             CriticalAlertDialog(
                                 title = "Budget Exceeded!",
                                 message = alert.message,
-                                onDismiss = { vm.onAlertDismissed() },
+                                onDismiss = { vm.onAlertActionTaken("later") }, // record “Later”
                                 onAdjust = {
-                                    vm.onAlertActionTaken("adjust")
+                                    vm.onAlertActionTaken("adjust")             // record “Adjust”
                                     navController.navigate("budgets")
                                 }
                             )

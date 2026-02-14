@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         FirebaseApp.initializeApp(this)
-        GamificationScheduler.schedule(this)
+        GamificationScheduler.schedulePeriodic(this)
 
         setContent {
             AppNavigation()

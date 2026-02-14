@@ -37,34 +37,34 @@ class AchievementsViewModel(
     val achievements =
         repo.observeAchievements().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-//    init {
-//        viewModelScope.launch {
-//            val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
-//            var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
-//
-//            // Initial catch-up (process only events since lastTs)
-//            val initial = db.nudgeEventDao().getEventsSince(lastTs)
-//            if (initial.isNotEmpty()) {
-//                repo.processNudgeEvents(initial)
-//                lastTs = initial.maxOf { it.timestamp }
-//                prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
-//            }
-//
-//            // Live updates: re-check periodically (simple + stable MVP)
-//            while (true) {
-//                val newer = db.nudgeEventDao().getEventsSince(lastTs)
-//                if (newer.isNotEmpty()) {
-//                    repo.processNudgeEvents(newer)
-//                    lastTs = newer.maxOf { it.timestamp }
-//                    prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
-//                }
-//                kotlinx.coroutines.delay(5_000)
-//            }
-//        }
-//
-//        viewModelScope.launch {
-//            repo.awardUnderBudgetDayIfEligible()
-//        }
-//    }
+    init {
+        viewModelScope.launch {
+            val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
+            var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
+
+            // Initial catch-up (process only events since lastTs)
+            val initial = db.nudgeEventDao().getEventsSince(lastTs)
+            if (initial.isNotEmpty()) {
+                repo.processNudgeEvents(initial)
+                lastTs = initial.maxOf { it.timestamp }
+                prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
+            }
+
+            // Live updates: re-check periodically (simple + stable MVP)
+            while (true) {
+                val newer = db.nudgeEventDao().getEventsSince(lastTs)
+                if (newer.isNotEmpty()) {
+                    repo.processNudgeEvents(newer)
+                    lastTs = newer.maxOf { it.timestamp }
+                    prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
+                }
+                kotlinx.coroutines.delay(5_000)
+            }
+        }
+
+        viewModelScope.launch {
+            repo.awardUnderBudgetDayIfEligible()
+        }
+    }
 
 }

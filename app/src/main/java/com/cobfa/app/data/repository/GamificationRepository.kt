@@ -58,7 +58,7 @@ class GamificationRepository(
                 // award once; idempotent via unique sourceNudgeId
                 awardPoints(
                     PointsEventEntity(
-                        sourceNudgeId = e.id,
+                        sourceNudgeId = merchantBlockDelayedKey(e),
                         delta = 5,
                         reason = REASON_IMPULSE_SKIPPED,
                         details = e.category
@@ -77,7 +77,7 @@ class GamificationRepository(
         val lastAwarded = prefs.getString("under_budget_awarded_date", null)
         if (lastAwarded == todayKey) return
 
-        val monthStart = System.currentTimeMillis()
+        val monthStart = monthStartMillis()
         val usages = budgetRepo.getBudgetUsageForMonth(monthStart, expenseDao)
 
         if (usages.isEmpty()) return
@@ -106,15 +106,18 @@ class GamificationRepository(
 
         return when {
             type == "BUDGET_100" || type == "BUDGET_100%" || type.startsWith("BUDGET_100") -> {
+                val day = LocalDate.now(ZoneId.systemDefault()).toString()
+                val cat = e.category.trim().uppercase()
+                val key = "BUDGET_100:$day:$cat".hashCode().toLong()
+
                 PointsEventEntity(
-                    sourceNudgeId = e.id,
+                    sourceNudgeId = key,
                     delta = -5,
                     reason = REASON_BUDGET_EXCEEDED,
                     details = e.category
                 )
             }
 
-            // Impulse skipped = dismissed pattern alert
             action == "dismiss" && (
                     type.startsWith("MERCHANT_") ||
                             type.startsWith("CATEGORY_") ||
@@ -234,5 +237,15 @@ class GamificationRepository(
         const val REASON_UNDER_BUDGET_DAY = "UNDER_BUDGET_DAY"
         const val REASON_IMPULSE_SKIPPED = "IMPULSE_SKIPPED"
         const val REASON_BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    }
+
+    private fun monthStartMillis(): Long {
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val start = today.withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault())
+        return start.toInstant().toEpochMilli()
+    }
+
+    private fun merchantBlockDelayedKey(e: NudgeEventEntity): Long {
+        return ("MERCHANT_BLOCK_DELAYED:${e.id}").hashCode().toLong()
     }
 }

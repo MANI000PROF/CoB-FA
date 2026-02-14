@@ -28,7 +28,7 @@ import com.google.firebase.BuildConfig
         PointsEventEntity::class,
         AchievementEntity::class
     ],
-    version = 5,
+    version = 6,
 
     exportSchema = false
 )
@@ -56,7 +56,8 @@ abstract class ExpenseDatabase : RoomDatabase() {
                         MIGRATION_1_2,
                         MIGRATION_2_3,
                         MIGRATION_3_4,
-                        MIGRATION_4_5
+                        MIGRATION_4_5,
+                        MIGRATION_5_6
                     )
 
                     .apply {
@@ -126,6 +127,26 @@ abstract class ExpenseDatabase : RoomDatabase() {
                 db.execSQL("""
             CREATE UNIQUE INDEX IF NOT EXISTS index_achievements_key
             ON achievements(`key`)
+        """.trimIndent())
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS points_events")
+                db.execSQL("""
+            CREATE TABLE IF NOT EXISTS points_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                sourceNudgeId INTEGER NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                details TEXT,
+                timestamp INTEGER NOT NULL
+            )
+        """.trimIndent())
+                db.execSQL("""
+            CREATE UNIQUE INDEX IF NOT EXISTS index_points_events_sourceNudgeId
+            ON points_events(sourceNudgeId)
         """.trimIndent())
             }
         }

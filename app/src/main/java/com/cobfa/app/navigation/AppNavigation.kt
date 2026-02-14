@@ -266,7 +266,7 @@ fun AppNavigation() {
             val error by vm.error.collectAsState()
 
             // Read city/state from RealtimeDB profile (since you store it there)
-            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
             var city by remember { androidx.compose.runtime.mutableStateOf("") }
             var state by remember { androidx.compose.runtime.mutableStateOf("") }
 
@@ -282,6 +282,7 @@ fun AppNavigation() {
             }
 
             LeaderboardScreen(
+                currentUid = uid.orEmpty(),
                 city = city,
                 state = state,
                 mode = mode,
@@ -289,7 +290,17 @@ fun AppNavigation() {
                 loading = loading,
                 error = error,
                 onModeChange = { vm.setMode(it) },
-                onReload = { if (city.isNotBlank() && state.isNotBlank()) vm.load(city, state) }
+                onReload = {
+                    val safeUid = uid ?: return@LeaderboardScreen
+                    when (mode) {
+                        LeaderboardViewModel.Mode.CITY -> {
+                            if (city.isNotBlank() && state.isNotBlank()) vm.load(city, state, safeUid)
+                        }
+                        LeaderboardViewModel.Mode.STATE -> {
+                            if (state.isNotBlank()) vm.load(city, state, safeUid) // city ignored by VM in STATE mode
+                        }
+                    }
+                }
             )
         }
 

@@ -30,4 +30,9 @@ interface NudgeEventDao {
         """)
     suspend fun countDismissedSince(type: String, category: String, since: Long): Int
 
+    @Query("""
+    SELECT COUNT(*) FROM nudge_events
+    WHERE type = :type AND category = :category AND timestamp >= :since
+""")
+    suspend fun countSameNudgeSince(type: String, category: String, since: Long): Int
 }

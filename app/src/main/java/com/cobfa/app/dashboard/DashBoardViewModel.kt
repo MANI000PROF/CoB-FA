@@ -320,8 +320,7 @@ class DashboardViewModel(
             }
         }
         _activeAlert.value = null
-        logAlertAction("user_action", action)
-    }
+500    }
 
     private fun getTodayTimestampStart(): Long {
         val cal = Calendar.getInstance().apply {
@@ -345,10 +344,19 @@ class DashboardViewModel(
 
     private fun logNudgeEvent(type: String, category: String) {
         viewModelScope.launch {
+            val cat = normalizeCategoryKey(category)
+
+            // Cooldown: don’t spam the same pattern nudge.
+            val cooldownMs = 6L * 60 * 60 * 1000 // 6 hours
+            val since = System.currentTimeMillis() - cooldownMs
+
+            val alreadyLogged = nudgeEventDao.countSameNudgeSince(type, cat, since) > 0
+            if (alreadyLogged) return@launch
+
             nudgeEventDao.insert(
                 NudgeEventEntity(
                     type = type,
-                    category = normalizeCategoryKey(category),
+                    category = cat,
                     action = null
                 )
             )

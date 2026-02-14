@@ -120,6 +120,7 @@ class FirestoreService {
                 .document(uid)
                 .set(
                     mapOf(
+                        "uid" to uid,
                         "pointsBalance" to FieldValue.increment(delta.toLong()),
                         "updatedAt" to System.currentTimeMillis()
                     ),
@@ -450,6 +451,17 @@ class FirestoreService {
             Result.success(budgetsByMonth)
         } catch (e: Exception) {
             Log.e("FIRESTORE_SYNC", "Error fetching budgets: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchMyPublicUser(): Result<PublicUser> {
+        return try {
+            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
+            val snap = db.collection(publicUsersCollection).document(uid).get().await()
+            val u = snap.toObject(PublicUser::class.java) ?: PublicUser(uid = uid)
+            Result.success(u.copy(uid = uid))
+        } catch (e: Exception) {
             Result.failure(e)
         }
     }

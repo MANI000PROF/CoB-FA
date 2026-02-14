@@ -27,13 +27,22 @@ class LeaderboardViewModel(
     private val _rows = MutableStateFlow<List<FirestoreService.PublicUser>>(emptyList())
     val rows: StateFlow<List<FirestoreService.PublicUser>> = _rows
 
+    private val _myUser = MutableStateFlow<FirestoreService.PublicUser?>(null)
+    val myUser: StateFlow<FirestoreService.PublicUser?> = _myUser
+
+    private val _myRow = MutableStateFlow<FirestoreService.PublicUser?>(null)
+    val myRow: StateFlow<FirestoreService.PublicUser?> = _myRow
+
+    private val _myRank = MutableStateFlow<Int?>(null)
+    val myRank: StateFlow<Int?> = _myRank
+
     private var loadJob: Job? = null
 
     fun setMode(m: Mode) {
         _mode.value = m
     }
 
-    fun load(city: String, state: String) {
+    fun load(city: String, state: String, currentUid: String) {
         loadJob?.cancel()
 
         loadJob = viewModelScope.launch {
@@ -45,8 +54,17 @@ class LeaderboardViewModel(
                 Mode.STATE -> firestore.fetchStateLeaderboard(state = state)
             }
 
+            val meRes = firestore.fetchMyPublicUser()
+            _myUser.value = meRes.getOrNull()
+
             if (res.isSuccess) {
                 _rows.value = res.getOrNull().orEmpty()
+
+                val list = res.getOrNull().orEmpty()
+                _rows.value = list
+                val idx = list.indexOfFirst { it.uid == currentUid }
+                _myRow.value = if (idx >= 0) list[idx] else null
+                _myRank.value = if (idx >= 0) idx + 1 else null
             } else {
                 val e = res.exceptionOrNull()
                 _error.value = when (e) {

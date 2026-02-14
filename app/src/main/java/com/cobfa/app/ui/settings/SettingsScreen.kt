@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.cobfa.app.utils.GamificationScheduler
 import com.cobfa.app.utils.PreferenceManager
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -122,6 +123,20 @@ fun SettingsScreen(
                 supportingContent = { Text("Your data can be backed up to Firebase for recovery.") },
                 leadingContent = { Icon(Icons.Default.Sync, contentDescription = null) }
             )
+
+            Divider()
+
+            ListItem(
+                headlineContent = { Text("Recompute achievements now") },
+                supportingContent = { Text("Runs scoring worker immediately (for testing).") },
+                leadingContent = { Icon(Icons.Default.Sync, contentDescription = null) },
+                trailingContent = {
+                    TextButton(onClick = { GamificationScheduler.runNow(context) }) {
+                        Text("Run")
+                    }
+                }
+            )
+
         }
     }
 }

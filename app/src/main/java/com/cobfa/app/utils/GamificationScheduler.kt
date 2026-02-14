@@ -1,30 +1,47 @@
 package com.cobfa.app.utils
 
 import android.content.Context
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
+import androidx.work.*
 import com.cobfa.app.gamification.GamificationWorker
 import java.util.concurrent.TimeUnit
 
 object GamificationScheduler {
-    private const val UNIQUE_NAME = "cobfa_gamification_worker"
+    private const val UNIQUE_PERIODIC = "cobfa_gamification_worker_periodic"
+    private const val UNIQUE_ONETIME = "cobfa_gamification_worker_onetime"
 
-    fun schedule(context: Context) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
-            .build()
-
+    fun schedulePeriodic(context: Context) {
         val req = PeriodicWorkRequestBuilder<GamificationWorker>(12, TimeUnit.HOURS)
-            .setConstraints(constraints)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                    .build()
+            )
             .build()
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            UNIQUE_NAME,
+            UNIQUE_PERIODIC,
             ExistingPeriodicWorkPolicy.KEEP,
             req
         )
+    }
+
+    fun runNow(context: Context) {
+        val req = OneTimeWorkRequestBuilder<GamificationWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                    .build()
+            )
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            UNIQUE_ONETIME,
+            ExistingWorkPolicy.REPLACE,
+            req
+        )
+    }
+
+    fun cancelPeriodic(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC)
     }
 }

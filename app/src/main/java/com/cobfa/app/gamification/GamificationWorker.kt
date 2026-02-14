@@ -31,13 +31,19 @@ class GamificationWorker(
         )
 
         return try {
-            // Process recent nudges → points/badges
-            val events = db.nudgeEventDao().getRecentEventsSnapshot()
-            repo.processNudgeEvents(events)
+            val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
+            var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
 
-            // Daily +10 (if eligible)
+            val events = db.nudgeEventDao().getEventsSince(lastTs)
+            if (events.isNotEmpty()) {
+                repo.processNudgeEvents(events)
+
+                // Note: events are DESC in your query; still safe:
+                lastTs = maxOf(lastTs, events.maxOf { it.timestamp })
+                prefs.edit().putLong("last_nudge_processed_ts", lastTs).apply()
+            }
+
             repo.awardUnderBudgetDayIfEligible()
-
             Result.success()
         } catch (_: Exception) {
             Result.retry()

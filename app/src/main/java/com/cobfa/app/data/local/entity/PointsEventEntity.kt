@@ -6,19 +6,14 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "points_events",
-    indices = [
-        Index(value = ["sourceNudgeId"], unique = true)
-    ]
+    indices = [Index(value = ["sourceNudgeId"], unique = true)]
 )
 data class PointsEventEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
-
-    // To prevent double-awarding points for the same nudge event.
-    val sourceNudgeId: Long?,
-
-    val delta: Int,               // +10, +5, -5
-    val reason: String,           // "UNDER_BUDGET_DAY", "IMPULSE_SKIPPED", "BUDGET_EXCEEDED"
-    val details: String? = null,  // merchant/category
+    val sourceNudgeId: Long, // non-null
+    val delta: Int,
+    val reason: String,
+    val details: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
