@@ -1,5 +1,6 @@
 package com.cobfa.app.navigation
 
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
@@ -10,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -41,6 +43,7 @@ import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.tasks.await
+import android.Manifest
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -91,20 +94,31 @@ fun AppNavigation() {
             ProfileSetupScreen(
                 onProfileCompleted = {
                     val decided = PreferenceManager.isSmsPermissionDecided(context)
+                    val smsGranted = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.READ_SMS
+                    ) == PackageManager.PERMISSION_GRANTED
 
-                    if (decided) {
-                        navController.navigate("dashboard") {
-                            popUpTo("profile") { inclusive = true }
+                    when {
+                        smsGranted -> {
+                            navController.navigate("dashboard") {
+                                popUpTo("profile") { inclusive = true }
+                            }
                         }
-                    } else {
-                        navController.navigate("sms_permission") {
-                            popUpTo("profile") { inclusive = true }
+                        decided -> {
+                            navController.navigate("dashboard") {
+                                popUpTo("profile") { inclusive = true }
+                            }
+                        }
+                        else -> {
+                            navController.navigate("sms_permission") {
+                                popUpTo("profile") { inclusive = true }
+                            }
                         }
                     }
                 }
+
             )
         }
-
 
         composable("sms_permission") {
             val context = LocalContext.current
