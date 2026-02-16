@@ -12,15 +12,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
-import java.util.*
 
-/**
- * Manages Firestore operations for expense backup and recovery
- *
- * Collection structure:
- * users/{uid}/confirmed_expenses/{expenseId}
- * - Each document = one confirmed expense
- */
 class FirestoreService {
     private val db = FirebaseFirestore.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -167,26 +159,6 @@ class FirestoreService {
         }
     }
 
-    suspend fun releaseUsername(username: String): Result<Unit> {
-        return try {
-            val uid = currentUserId ?: return Result.failure(Exception("User not logged in"))
-            val key = username.trim().lowercase()
-            val ref = db.collection("usernames").document(key)
-
-            val snap = ref.get().await()
-            if (snap.getString("uid") == uid) {
-                ref.delete().await()
-            }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Backup a confirmed expense to Firestore
-     * Called immediately after user confirms an expense
-     */
     suspend fun backupExpense(expense: ExpenseEntity): Result<Unit> {
         return try {
             val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
@@ -203,9 +175,10 @@ class FirestoreService {
                 "smsHash" to expense.smsHash,
                 "category" to (expense.category?.name ?: "General"),
                 "status" to expense.status.name,
-                "createdAt" to System.currentTimeMillis(),
-                "updatedAt" to System.currentTimeMillis()
-            )
+                "createdAt" to expense.createdAt,
+                "updatedAt" to System.currentTimeMillis(),
+                "editedAt" to expense.editedAt,
+                )
 
             db.collection(collectionPath)
                 .document(userId)
@@ -272,10 +245,6 @@ class FirestoreService {
         }
     }
 
-    /**
-     * Get all SMS hashes of already-processed expenses
-     * Used to filter out duplicates from SMS inbox
-     */
     suspend fun getProcessedSmsHashes(): Result<Set<String>> {
         return try {
             val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
@@ -300,19 +269,17 @@ class FirestoreService {
         }
     }
 
-    /**
-     * Update an expense in Firestore
-     * (If category changes after confirmation)
-     */
     suspend fun updateExpense(expense: ExpenseEntity): Result<Unit> {
         return try {
             val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
 
-            Log.d("FIRESTORE_SYNC", "Updating expense: ${expense.id}")
-
             val expenseData = mapOf(
+                "merchant" to expense.merchant,
+                "amount" to expense.amount,
+                "timestamp" to expense.timestamp,
                 "category" to expense.category?.name,
                 "status" to expense.status.name,
+                "editedAt" to expense.editedAt,
                 "updatedAt" to System.currentTimeMillis()
             )
 
@@ -323,44 +290,12 @@ class FirestoreService {
                 .update(expenseData)
                 .await()
 
-            Log.d("FIRESTORE_SYNC", "Successfully updated expense: ${expense.id}")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("FIRESTORE_SYNC", "Error updating expense: ${e.message}")
             Result.failure(e)
         }
     }
 
-    /**
-     * Delete an expense from Firestore
-     * (If user wants to discard a confirmed expense)
-     */
-    suspend fun deleteExpense(expenseId: Long): Result<Unit> {
-        return try {
-            val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))
-
-            Log.d("FIRESTORE_SYNC", "Deleting expense: $expenseId")
-
-            db.collection(collectionPath)
-                .document(userId)
-                .collection(subCollectionPath)
-                .document(expenseId.toString())
-                .delete()
-                .await()
-
-            Log.d("FIRESTORE_SYNC", "Successfully deleted expense: $expenseId")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("FIRESTORE_SYNC", "Error deleting expense: ${e.message}")
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Backup monthly budgets to Firestore
-     * Structure: users/{uid}/budgets/{monthStart}
-     * Document contains array of all category budgets for that month
-     */
     suspend fun backupBudgetsForMonth(
         monthStart: Long,
         budgets: List<BudgetEntity>
@@ -400,10 +335,6 @@ class FirestoreService {
         }
     }
 
-    /**
-     * Restore ALL budgets from Firestore
-     * Called on app launch to populate local Room DB
-     */
     suspend fun fetchAllBudgets(): Result<Map<Long, List<BudgetEntity>>> {
         return try {
             val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))

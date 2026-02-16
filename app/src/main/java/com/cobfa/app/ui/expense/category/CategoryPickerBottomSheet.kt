@@ -1,4 +1,4 @@
-package com.cobfa.app.ui.expense.list
+package com.cobfa.app.ui.expense.category
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -25,7 +25,7 @@ fun CategoryPickerBottomSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            ExpenseCategory.values().forEach { category ->
+            ExpenseCategory.entries.forEach { category ->
                 Text(
                     text = category.name.replace("_", " "),
                     modifier = Modifier

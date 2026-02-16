@@ -25,5 +25,6 @@ data class ExpenseEntity(
     val source: ExpenseSource,
     val status: ExpenseStatus,
     val createdAt: Long,
-    val smsHash: String?
+    val smsHash: String?,
+    val editedAt: Long? = null
 )

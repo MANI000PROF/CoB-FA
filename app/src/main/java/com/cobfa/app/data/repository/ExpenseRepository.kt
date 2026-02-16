@@ -18,45 +18,9 @@ class ExpenseRepository(
         return expenseDao.insertExpense(expense)
     }
 
-    suspend fun deleteExpense(expense: ExpenseEntity) {
-        expenseDao.deleteExpense(expense)
-    }
-
-    fun getAllExpenses(): Flow<List<ExpenseEntity>> {
-        return expenseDao.getAllExpenses()
-    }
-
     fun getPendingExpenses(): Flow<List<ExpenseEntity>> =
         expenseDao.getExpensesByStatus(ExpenseStatus.PENDING)
 
-    suspend fun confirmExpense(id: Long, category: ExpenseCategory) {
-        ExpenseLogger.logConfirmationStart(id)
-
-        try {
-            val updated = expenseDao.confirmExpenseSafe(id, category)
-            if (updated <= 0) {
-                ExpenseLogger.logConfirmationError(id, "DB update affected 0 rows (missing id or mismatch)")
-                return
-            }
-
-            ExpenseLogger.logConfirmationComplete(id, category.name, ExpenseStatus.CONFIRMED.name)
-            syncManager?.syncConfirmedExpense(id)
-
-        } catch (e: Exception) {
-            ExpenseLogger.logConfirmationError(id, e.message ?: "Unknown error")
-            throw e
-        }
-    }
-
-    // ✅ NEW: Helper method for validation
-    suspend fun getExpenseById(id: Long): ExpenseEntity? {
-        return try {
-            expenseDao.getExpenseById(id)
-        } catch (e: Exception) {
-            ExpenseLogger.logDatabaseError("getExpenseById($id)", e.message ?: "Unknown")
-            null
-        }
-    }
 
     suspend fun existsBySmsHash(hash: String): Boolean {
         return expenseDao.countBySmsHash(hash) > 0
@@ -96,4 +60,61 @@ class ExpenseRepository(
             ExpenseLogger.logConfirmationError(-1, "Confirmed row not found after update for smsHash=$smsHash")
         }
     }
+
+    suspend fun updateExpenseCategory(id: Long, category: ExpenseCategory) {
+        val updated = expenseDao.updateCategory(id, category)
+        if (updated <= 0) {
+            ExpenseLogger.logDatabaseError("updateExpenseCategory($id)", "DB update affected 0 rows")
+            return
+        }
+        // Optional: if you want Firestore to reflect category changes
+        syncManager?.syncConfirmedExpense(id)
+    }
+
+    suspend fun softDeleteExpense(id: Long) {
+        val updated = expenseDao.updateStatus(id, ExpenseStatus.DELETED)
+        if (updated > 0) {
+            syncManager?.syncConfirmedExpense(id)
+        }
+    }
+
+    suspend fun restoreExpense(id: Long) {
+        val updated = expenseDao.updateStatus(id, ExpenseStatus.CONFIRMED)
+        if (updated > 0) {
+            syncManager?.syncConfirmedExpense(id)
+        }
+    }
+
+    suspend fun editExpense(id: Long, merchant: String?, amount: Double, timestamp: Long) {
+        val updated = expenseDao.updateExpenseCore(
+            id = id,
+            merchant = merchant?.trim()?.ifBlank { null },
+            amount = amount,
+            timestamp = timestamp,
+            editedAt = System.currentTimeMillis()
+        )
+        if (updated > 0) {
+            syncManager?.syncConfirmedExpense(id)
+        } else {
+            ExpenseLogger.logDatabaseError("editExpense($id)", "DB update affected 0 rows")
+        }
+    }
+
+    fun observeConfirmedActiveNewest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeConfirmedNewest()
+
+    fun observeConfirmedActiveOldest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeConfirmedOldest()
+
+    fun observeConfirmedAllNewest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeConfirmedIncludingDeletedNewest()
+
+    fun observeConfirmedAllOldest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeConfirmedIncludingDeletedOldest()
+
+    fun observeDeletedNewest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeDeletedNewest()
+
+    fun observeDeletedOldest(): Flow<List<ExpenseEntity>> =
+        expenseDao.observeDeletedOldest()
 }

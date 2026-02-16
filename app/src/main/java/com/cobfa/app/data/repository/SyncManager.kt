@@ -7,41 +7,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
-/**
- * Manages sync between local DB and Firestore
- *
- * Responsibilities:
- * - Backup new confirmed expenses
- * - Restore expenses on app reinstall
- * - Calculate which SMS are already processed
- */
 class SyncManager(
     private val expenseDb: ExpenseDatabase,
     private val firestoreService: FirestoreService
 ) {
 
-    /**
-     * Called when user confirms an expense
-     * Syncs immediately to Firestore for backup
-     */
     suspend fun syncConfirmedExpense(expenseId: Long) = withContext(Dispatchers.IO) {
         try {
-            Log.d("SYNC_MANAGER", "Syncing confirmed expense: $expenseId")
+            Log.d("SYNC_MANAGER", "Syncing expense: $expenseId")
 
-            val expense = expenseDb.expenseDao().getExpenseById(expenseId)
-                ?: return@withContext
+            val expense = expenseDb.expenseDao().getExpenseById(expenseId) ?: return@withContext
 
+            // For ongoing changes (category/status), use partial update.
+            val upd = firestoreService.updateExpense(expense)
+            if (upd.isSuccess) {
+                Log.d("SYNC_MANAGER", "updateExpense success: $expenseId")
+                return@withContext
+            }
+
+            // Fallback: if doc doesn’t exist yet (or update path fails), upsert full doc.
             firestoreService.backupExpense(expense)
-            Log.d("SYNC_MANAGER", "Successfully synced expense: $expenseId")
+            Log.d("SYNC_MANAGER", "backupExpense fallback success: $expenseId")
         } catch (e: Exception) {
-            Log.e("SYNC_MANAGER", "Error syncing expense: ${e.message}")
+            Log.e("SYNC_MANAGER", "Error syncing expense: ${e.message}", e)
         }
     }
 
-    /**
-     * Called on app launch (after login)
-     * Restores all confirmed expenses from Firestore and saves to local DB
-     */
     suspend fun restoreFromFirestore() = withContext(Dispatchers.IO) {
         try {
             Log.d("SYNC_MANAGER", "Starting Firestore restore...")
@@ -75,10 +66,6 @@ class SyncManager(
         }
     }
 
-    /**
-     * Get set of SMS hashes that are already processed
-     * Used to filter SMS inbox to show only NEW expenses
-     */
     suspend fun getProcessedSmsHashes(): Set<String> = withContext(Dispatchers.IO) {
         try {
             Log.d("SYNC_MANAGER", "Fetching processed SMS hashes...")
@@ -100,9 +87,6 @@ class SyncManager(
         }
     }
 
-    /**
-     * Check if a specific SMS is already processed
-     */
     suspend fun isSmSProcessed(smsHash: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val hashes = getProcessedSmsHashes()
@@ -113,10 +97,6 @@ class SyncManager(
         }
     }
 
-    /**
-     * Sync budgets for a specific month to Firestore
-     * Called after budget upsert
-     */
     suspend fun syncBudgetsForMonth(monthStart: Long) = withContext(Dispatchers.IO) {
         try {
             Log.d("SYNC_MANAGER", "Syncing budgets for month: $monthStart")
@@ -136,18 +116,11 @@ class SyncManager(
             result.onFailure { e ->
                 Log.e("BUDGET_SYNC", "Error syncing budgets: ${e.message}")
             }
-
-            firestoreService.backupBudgetsForMonth(monthStart, budgets)
-            Log.d("SYNC_MANAGER", "Successfully synced ${budgets.size} budgets for month $monthStart")
         } catch (e: Exception) {
             Log.e("SYNC_MANAGER", "Error syncing budgets for month $monthStart: ${e.message}")
         }
     }
 
-    /**
-     * Restore ALL budgets from Firestore to local Room DB
-     * Called on app launch after login
-     */
     suspend fun restoreBudgetsFromFirestore() = withContext(Dispatchers.IO) {
         try {
             Log.d("SYNC_MANAGER", "Starting budget restore from Firestore...")

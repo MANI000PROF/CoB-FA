@@ -55,6 +55,7 @@ import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.sms.SmsFilters
 import com.cobfa.app.sms.SmsInboxReader
 import com.cobfa.app.sms.SmsProcessor
+import com.cobfa.app.ui.expense.category.CategoryPickerBottomSheet
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
 import com.cobfa.app.utils.ExpenseLogger
 import com.cobfa.app.utils.PreferenceManager
@@ -490,7 +491,7 @@ fun PendingExpensesSectionScrollable(vm: PendingExpensesViewModel) {
                 }
 
                 if (selectedExpenseId == e.id) {
-                    com.cobfa.app.ui.expense.list.CategoryPickerBottomSheet(
+                    CategoryPickerBottomSheet(
                         onCategorySelected = { category ->
                             val hash = e.smsHash
                             if (hash != null) vm.confirmBySmsHash(hash, category)

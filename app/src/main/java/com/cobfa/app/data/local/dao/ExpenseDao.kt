@@ -32,9 +32,6 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE status = :status ORDER BY timestamp DESC")
     fun getExpensesByStatus(status: ExpenseStatus): Flow<List<ExpenseEntity>>
 
-    @Query("UPDATE expenses SET status = :status WHERE id = :id")
-    suspend fun updateStatus(id: Long, status: ExpenseStatus): Int
-
     @Query("UPDATE expenses SET status = :status, category = :category WHERE id = :id")
     suspend fun confirmExpense(id: Long, category: ExpenseCategory, status: ExpenseStatus): Int
 
@@ -60,14 +57,6 @@ interface ExpenseDao {
         end: Long
     ): Flow<MonthlySummary>
 
-    // ADD THIS METHOD to ExpenseDao
-    @Query("SELECT * FROM expenses WHERE id = :id")
-    suspend fun getExpenseById(id: Long): ExpenseEntity?
-
-    /**
-     * Get total spent amount for a category within date range.
-     * Only counts CONFIRMED DEBIT expenses.
-     */
     @Query("""
     SELECT IFNULL(SUM(amount), 0.0) 
     FROM expenses 
@@ -111,4 +100,48 @@ interface ExpenseDao {
 
     @Query("SELECT * FROM expenses WHERE smsHash = :smsHash LIMIT 1")
     suspend fun getExpenseBySmsHash(smsHash: String): ExpenseEntity?
+
+    @Query("UPDATE expenses SET category = :category WHERE id = :id")
+    suspend fun updateCategory(id: Long, category: ExpenseCategory): Int
+
+    @Query("UPDATE expenses SET status = :status WHERE id = :id")
+    suspend fun updateStatus(id: Long, status: ExpenseStatus): Int
+
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    suspend fun getExpenseById(id: Long): ExpenseEntity?
+
+    @Query("""
+    UPDATE expenses 
+    SET merchant = :merchant,
+        amount = :amount,
+        timestamp = :timestamp,
+        editedAt = :editedAt
+    WHERE id = :id
+""")
+    suspend fun updateExpenseCore(
+        id: Long,
+        merchant: String?,
+        amount: Double,
+        timestamp: Long,
+        editedAt: Long
+    ): Int
+
+    @Query("SELECT * FROM expenses WHERE status = 'CONFIRMED' ORDER BY timestamp DESC")
+    fun observeConfirmedNewest(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE status = 'CONFIRMED' ORDER BY timestamp ASC")
+    fun observeConfirmedOldest(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE status IN ('CONFIRMED','DELETED') ORDER BY timestamp DESC")
+    fun observeConfirmedIncludingDeletedNewest(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE status IN ('CONFIRMED','DELETED') ORDER BY timestamp ASC")
+    fun observeConfirmedIncludingDeletedOldest(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE status = 'DELETED' ORDER BY timestamp DESC")
+    fun observeDeletedNewest(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE status = 'DELETED' ORDER BY timestamp ASC")
+    fun observeDeletedOldest(): Flow<List<ExpenseEntity>>
+
 }
