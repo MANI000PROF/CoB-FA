@@ -1,4 +1,4 @@
-package com.cobfa.app.dashboard
+package com.cobfa.app.ui.leaderboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

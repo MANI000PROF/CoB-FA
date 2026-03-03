@@ -1,12 +1,10 @@
 package com.cobfa.app.data.repository
 
-import android.util.Log
 import com.cobfa.app.data.local.dao.BudgetDao
 import com.cobfa.app.data.local.dao.ExpenseDao
 import com.cobfa.app.data.local.entity.BudgetEntity
 import com.cobfa.app.domain.model.ExpenseCategory
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -14,63 +12,43 @@ class BudgetRepository(
     private val budgetDao: BudgetDao
 ) {
 
-    /**
-     * Save or update budget for category + month.
-     */
+    fun observeBudgetsForMonth(monthStart: Long): Flow<List<BudgetEntity>> =
+        budgetDao.getBudgetsForMonth(monthStart)
+
     suspend fun upsertBudget(
         category: ExpenseCategory,
         amount: Double,
         monthStart: Long,
-        syncManager: SyncManager? = null  // NEW: optional sync
+        alertsEnabled: Boolean = true,
+        syncManager: SyncManager? = null
     ): Long {
-        val normalizedMonthStart = normalizeMonthStart(monthStart)
+        val now = System.currentTimeMillis()
+        val existing = budgetDao.getBudgetForCategory(category, monthStart)
 
-        val budget = BudgetEntity(
+        val entity = BudgetEntity(
+            id = existing?.id ?: 0L,
             category = category,
             amount = amount,
-            monthStart = normalizedMonthStart,
-            alertsEnabled = true
+            monthStart = monthStart,
+            alertsEnabled = alertsEnabled,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now
         )
 
-        val id = budgetDao.upsertBudget(budget)
-
-        // NEW: Auto-sync to Firestore
-        syncManager?.syncBudgetsForMonth(normalizedMonthStart)
-
+        val id = budgetDao.upsertBudget(entity)
+        syncManager?.syncBudgetsForMonth(monthStart)
         return id
     }
 
-    /**
-     * Delete budget for category + month.
-     */
-    suspend fun deleteBudget(category: ExpenseCategory, monthStart: Long) {
-        val normalizedMonthStart = normalizeMonthStart(monthStart)
-        budgetDao.deleteBudget(category, normalizedMonthStart)
-    }
-
-    /**
-     * Get budgets for a specific month.
-     */
-    fun getBudgetsForMonth(monthStart: Long): Flow<List<BudgetEntity>> {
-        val normalizedMonthStart = normalizeMonthStart(monthStart)
-        return budgetDao.getBudgetsForMonth(normalizedMonthStart)
-    }
-
-    /**
-     * Get budget for specific category + month.
-     */
-    suspend fun getBudgetForCategory(
+    suspend fun deleteBudget(
         category: ExpenseCategory,
-        monthStart: Long
-    ): BudgetEntity? {
-        val normalizedMonthStart = normalizeMonthStart(monthStart)
-        return budgetDao.getBudgetForCategory(category, normalizedMonthStart)
+        monthStart: Long,
+        syncManager: SyncManager? = null
+    ) {
+        budgetDao.deleteBudget(category, monthStart)
+        syncManager?.syncBudgetsForMonth(monthStart)
     }
 
-    /**
-     * Normalize monthStart timestamp to 1st of month at 00:00:00 UTC.
-     * Ensures consistent querying regardless of timezone/milliseconds.
-     */
     private fun normalizeMonthStart(timestamp: Long): Long {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         cal.timeInMillis = timestamp
@@ -82,18 +60,20 @@ class BudgetRepository(
         return cal.timeInMillis
     }
 
-    /**
-     * Get budget usage summary for all categories in a month.
-     * Returns categories with budgets + their spent % (0-200+ for overspend).
-     */
+    data class BudgetUsage(
+        val category: ExpenseCategory,
+        val budgetAmount: Double,
+        val spentAmount: Double,
+        val percentageUsed: Int,
+        val alertsEnabled: Boolean
+    )
+
     suspend fun getBudgetUsageForMonth(
         monthStart: Long,
         expenseDao: ExpenseDao
     ): List<BudgetUsage> {
         val normalizedMonthStart = normalizeMonthStart(monthStart)
-        Log.d("BUDGET_DEBUG", "ALERT query monthStart: $normalizedMonthStart")
         val budgets = budgetDao.getCurrentBudgetsForMonth(normalizedMonthStart)
-        Log.d("BUDGET_DEBUG", "Found ${budgets.size} budgets for alerts")
         val monthEnd = getMonthEnd(normalizedMonthStart)
 
         return budgets.map { budget ->
@@ -116,14 +96,6 @@ class BudgetRepository(
         }
     }
 
-    data class BudgetUsage(
-        val category: ExpenseCategory,
-        val budgetAmount: Double,
-        val spentAmount: Double,
-        val percentageUsed: Int,
-        val alertsEnabled: Boolean
-    )
-
     private fun getMonthEnd(monthStart: Long): Long {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         cal.timeInMillis = monthStart
@@ -134,5 +106,4 @@ class BudgetRepository(
         cal.set(Calendar.MILLISECOND, 999)
         return cal.timeInMillis
     }
-
 }

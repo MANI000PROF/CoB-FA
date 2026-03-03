@@ -15,9 +15,11 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -62,7 +64,11 @@ fun AnalyticsScreen(
     ui: AnalyticsUiState,
     selectedRange: AnalyticsRange,
     onRangeChange: (AnalyticsRange) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedMonthLabel: String,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    canGoNextMonth: Boolean
 ) {
     Column(
         modifier = modifier
@@ -86,7 +92,9 @@ fun AnalyticsScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             RangeChip(
                 text = "Week",
                 selected = selectedRange == AnalyticsRange.WEEK,
@@ -97,6 +105,19 @@ fun AnalyticsScreen(
                 selected = selectedRange == AnalyticsRange.MONTH,
                 onClick = { onRangeChange(AnalyticsRange.MONTH) }
             )
+        }
+
+        if (selectedRange == AnalyticsRange.MONTH) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onPrevMonth) { Text("‹") }
+                Text(selectedMonthLabel, style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = onNextMonth, enabled = canGoNextMonth) { Text("›") }
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -190,6 +211,12 @@ private fun PieChartView(
                 .filter { it.amount > 0.0 }
                 .map { PieEntry(it.amount.toFloat(), it.label) }
 
+            if (entries.isEmpty()) {
+                chart.clear()
+                chart.invalidate()
+                return@AndroidView
+            }
+
             val ds = PieDataSet(entries, "").apply {
                 colors = ColorTemplate.MATERIAL_COLORS.toList()
                 valueTextColor = Color.WHITE
@@ -221,13 +248,28 @@ private fun LineChartView(
             LineChart(ctx).apply {
                 description = Description().apply { text = "" }
                 axisRight.isEnabled = false
-                legend.isEnabled = true
-                xAxis.granularity = 1f
+                legend.isEnabled = false
+
+                xAxis.apply {
+                    granularity = 1f
+                    setDrawGridLines(false)
+                    position = com.github.mikephil.charting.components.XAxis.XAxisPosition.BOTTOM
+                }
+
+                axisLeft.apply {
+                    setDrawGridLines(true)
+                }
             }
         },
         update = { chart ->
             val entries = data.mapIndexed { index, p ->
                 Entry(index.toFloat(), p.amount.toFloat())
+            }
+
+            if (entries.isEmpty()) {
+                chart.clear()
+                chart.invalidate()
+                return@AndroidView
             }
 
             val ds = LineDataSet(entries, "Spend").apply {
@@ -236,10 +278,27 @@ private fun LineChartView(
                 lineWidth = 2f
                 setDrawCircles(true)
                 setDrawValues(false)
+                mode = LineDataSet.Mode.CUBIC_BEZIER
             }
 
             chart.data = LineData(ds)
+
+            // X-axis labels from TrendPoint.label
+            val labels = data.map { it.label }
+            chart.xAxis.apply {
+                labelCount = minOf(labels.size, 7) // avoids overcrowding
+                valueFormatter = object : ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        val i = value.toInt()
+                        return labels.getOrNull(i).orEmpty()
+                    }
+                }
+            }
+
+            chart.data?.notifyDataChanged()
+            chart.notifyDataSetChanged()
             chart.invalidate()
         }
     )
 }
+

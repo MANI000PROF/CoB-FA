@@ -25,10 +25,10 @@ import com.cobfa.app.auth.phone.PhoneAuthViewModel
 import com.cobfa.app.auth.profile.ProfileSetupScreen
 import com.cobfa.app.auth.session.DeviceId
 import com.cobfa.app.auth.session.SingleDeviceEnforcer
-import com.cobfa.app.dashboard.AchievementsViewModel
-import com.cobfa.app.dashboard.AnalyticsViewModel
+import com.cobfa.app.ui.achievements.AchievementsViewModel
+import com.cobfa.app.ui.analytics.AnalyticsViewModel
 import com.cobfa.app.dashboard.DashboardScreen
-import com.cobfa.app.dashboard.LeaderboardViewModel
+import com.cobfa.app.ui.leaderboard.LeaderboardViewModel
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.launch.LaunchScreen
 import com.cobfa.app.ui.achievements.AchievementsScreen
@@ -44,6 +44,12 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.tasks.await
 import android.Manifest
+import com.cobfa.app.data.remote.FirestoreService
+import com.cobfa.app.data.repository.BudgetRepository
+import com.cobfa.app.data.repository.SyncManager
+import com.cobfa.app.ui.budget.BudgetViewModel
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -195,11 +201,25 @@ fun AppNavigation() {
 
             val ui by vm.uiState.collectAsState()
             val range by vm.range.collectAsState()
+            val selectedMonth: YearMonth by vm.selectedMonth.collectAsState()
+
+            val monthLabel = remember(selectedMonth) {
+                // "Mar 2026"
+                selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy"))
+            }
+
+            val canGoNextMonth = remember(selectedMonth) {
+                selectedMonth.isBefore(YearMonth.now())
+            }
 
             AnalyticsScreen(
                 ui = ui,
                 selectedRange = range,
-                onRangeChange = { vm.setRange(it) }
+                onRangeChange = { vm.setRange(it) },
+                selectedMonthLabel = monthLabel,
+                onPrevMonth = { vm.prevMonth() },
+                onNextMonth = { vm.nextMonth() },
+                canGoNextMonth = canGoNextMonth
             )
         }
 
@@ -305,9 +325,21 @@ fun AppNavigation() {
         }
 
         composable("budgets") {
-            BudgetScreen()
-        }
+            val context = LocalContext.current
+            val db = remember { ExpenseDatabase.getInstance(context) }
+            val vm: BudgetViewModel = viewModel(
+                factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        val repo = BudgetRepository(db.budgetDao())
+                        val syncManager = SyncManager(db, FirestoreService())
+                        return BudgetViewModel(db, repo, syncManager) as T
+                    }
+                }
+            )
 
+            BudgetScreen(vm)
+        }
     }
 
 }

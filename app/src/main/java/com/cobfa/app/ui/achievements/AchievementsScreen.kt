@@ -17,7 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.cobfa.app.data.local.entity.AchievementEntity
 import com.cobfa.app.data.local.entity.PointsEventEntity
-import kotlin.math.roundToInt
 
 @Composable
 fun AchievementsScreen(

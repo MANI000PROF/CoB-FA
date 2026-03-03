@@ -144,4 +144,27 @@ interface ExpenseDao {
     @Query("SELECT * FROM expenses WHERE status = 'DELETED' ORDER BY timestamp ASC")
     fun observeDeletedOldest(): Flow<List<ExpenseEntity>>
 
+    @Query("""
+    SELECT * FROM expenses 
+    WHERE timestamp BETWEEN :start AND :end
+      AND status = 'CONFIRMED'
+      AND type = 'DEBIT'
+    ORDER BY timestamp ASC
+""")
+    fun observeConfirmedDebitsBetween(start: Long, end: Long): Flow<List<ExpenseEntity>>
+
+    data class CategorySpentRow(
+        val category: ExpenseCategory?,
+        val spent: Double
+    )
+
+    @Query("""
+  SELECT category AS category, IFNULL(SUM(amount), 0.0) AS spent
+  FROM expenses
+  WHERE status = 'CONFIRMED'
+    AND type = 'DEBIT'
+    AND timestamp BETWEEN :start AND :end
+  GROUP BY category
+""")
+    fun observeSpentByCategory(start: Long, end: Long): Flow<List<CategorySpentRow>>
 }

@@ -1,5 +1,7 @@
 package com.cobfa.app.ui.budget
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,62 +14,60 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.local.entity.BudgetEntity
-import com.cobfa.app.data.remote.FirestoreService
-import com.cobfa.app.data.repository.BudgetRepository
-import com.cobfa.app.data.repository.ExpenseRepository
-import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.ExpenseCategory
-import kotlinx.coroutines.launch
-import java.util.*
+import java.util.Locale
+import kotlin.math.roundToInt
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BudgetScreen() {
-    val context = LocalContext.current
-
-    val db = remember { ExpenseDatabase.getInstance(context) }
-    val repo = remember { BudgetRepository(db.budgetDao()) }
-    val firestoreService = remember { FirestoreService() }
-    val syncManager = remember { SyncManager(db, firestoreService) }
-
-    // Restore budgets on screen load
-    rememberCoroutineScope()
-    LaunchedEffect(Unit) {
-        syncManager.restoreBudgetsFromFirestore()
-    }
-
-    // Current month start (1st of current month, 00:00:00)
-    val currentMonthStart = remember {
-        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-        cal.set(Calendar.DAY_OF_MONTH, 1)
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.timeInMillis
-    }
-
-    val budgets by repo.getBudgetsForMonth(currentMonthStart).collectAsState(initial = emptyList())
+fun BudgetScreen(vm: BudgetViewModel) {
+    val ui by vm.uiState.collectAsState()
+    val isCurrentMonth = ui.isCurrentMonth
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedBudgetForDelete by remember { mutableStateOf<BudgetEntity?>(null) }
+    var editBudget by remember { mutableStateOf<BudgetEntity?>(null) }
+
+    LaunchedEffect(Unit) {
+        vm.restoreBudgetsFromFirestoreOnce()
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Monthly Budgets") },
+            CenterAlignedTopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { vm.prevMonth() }) {
+                            Text("‹", style = MaterialTheme.typography.titleLarge)
+                        }
+                        Text(
+                            ui.monthLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        IconButton(
+                            onClick = { vm.nextMonth() },
+                            enabled = ui.canGoNextMonth
+                        ) {
+                            Text("›", style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+                },
                 actions = {
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add budget")
+                    if (ui.isCurrentMonth) {
+                        IconButton(onClick = { showAddDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add budget")
+                        }
                     }
                 }
             )
         }
     ) { padding ->
-        if (budgets.isEmpty()) {
+
+        if (ui.rows.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -75,12 +75,9 @@ fun BudgetScreen() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                Text("No budgets set yet", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "No budgets set yet",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "Tap + to create your first budget",
+                    "Tap + to create your first budget",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -93,14 +90,15 @@ fun BudgetScreen() {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(budgets) { budget ->
+                items(ui.rows, key = { it.budget.id }) { row ->
                     BudgetRow(
-                        budget = budget,
-                        onDelete = { selectedBudgetForDelete = budget },
-                        repo = repo,
-                        monthStart = currentMonthStart,
-                        db = db,
-                        syncManager = syncManager
+                        budget = row.budget,
+                        spentAmount = row.spent,
+                        progress = row.progress,
+                        canEdit = isCurrentMonth,
+                        canDelete = isCurrentMonth,
+                        onEdit = { editBudget = row.budget },
+                        onDelete = { selectedBudgetForDelete = row.budget }
                     )
                 }
             }
@@ -109,18 +107,33 @@ fun BudgetScreen() {
 
     if (showAddDialog) {
         AddBudgetDialog(
-            monthStart = currentMonthStart,
-            repo = repo,
-            syncManager = syncManager,
-            onDismiss = { showAddDialog = false }
+            onDismiss = { showAddDialog = false },
+            onSave = { cat, amt ->
+                vm.addOrUpdateBudget(cat, amt)
+                showAddDialog = false
+            }
+        )
+    }
+
+    editBudget?.let { b ->
+        EditBudgetDialog(
+            budget = b,
+            onDismiss = { editBudget = null },
+            onUpdate = { amt ->
+                vm.addOrUpdateBudget(b.category, amt)
+                editBudget = null
+            }
         )
     }
 
     selectedBudgetForDelete?.let { budget ->
         DeleteBudgetDialog(
             budget = budget,
-            repo = repo,
-            onDismiss = { selectedBudgetForDelete = null }
+            onDismiss = { selectedBudgetForDelete = null },
+            onConfirm = {
+                vm.deleteBudget(budget.category)
+                selectedBudgetForDelete = null
+            }
         )
     }
 }
@@ -128,168 +141,85 @@ fun BudgetScreen() {
 @Composable
 private fun BudgetRow(
     budget: BudgetEntity,
-    onDelete: () -> Unit,
-    repo: BudgetRepository,
-    monthStart: Long,
-    db: ExpenseDatabase,
-    syncManager: SyncManager? = null
+    spentAmount: Double,
+    progress: Double,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    var progress by remember { mutableStateOf(0.0) }
-    var spentAmount by remember { mutableStateOf(0.0) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    rememberCoroutineScope()
-    var showEditDialog by remember { mutableStateOf(false) }  // ✅ NEW
-
-    // Compute real progress from expenses (run every 3 seconds)
-    LaunchedEffect(budget.id, monthStart) {
-        while (true) {
-            try {
-                val expenseRepo = ExpenseRepository(db.expenseDao())
-
-                // Month end: last day of month at 23:59:59
-                val monthEnd = run {
-                    val cal = Calendar.getInstance()
-                    cal.timeInMillis = monthStart
-                    cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
-                    cal.set(Calendar.HOUR_OF_DAY, 23)
-                    cal.set(Calendar.MINUTE, 59)
-                    cal.set(Calendar.SECOND, 59)
-                    cal.set(Calendar.MILLISECOND, 999)
-                    cal.timeInMillis
-                }
-
-                // Get actual spent amount for this category
-                val actualSpent = expenseRepo.getSpentAmountByCategory(
-                    category = budget.category,
-                    start = monthStart,
-                    end = monthEnd
-                )
-
-                spentAmount = actualSpent
-                progress = if (budget.amount > 0) {
-                    (actualSpent / budget.amount).coerceAtMost(1.0)
-                } else 0.0
-
-                errorMessage = null
-                android.util.Log.d("BUDGET_ROW", "Budget ${budget.category}: spent=₹$actualSpent, progress=${progress*100}%")
-
-            } catch (e: Exception) {
-                errorMessage = e.message
-                android.util.Log.e("BUDGET_ROW", "Error computing progress for ${budget.category}: ${e.message}")
-            }
-
-            // Update every 3 seconds
-            kotlinx.coroutines.delay(3000)
-        }
-    }
+    val overspent = spentAmount > budget.amount && budget.amount > 0
+    val pct = if (budget.amount > 0) (spentAmount / budget.amount * 100.0) else 0.0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (progress > 1.0)
-                MaterialTheme.colorScheme.errorContainer
-            else
-                MaterialTheme.colorScheme.surface
+            containerColor = if (overspent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
         )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        text = budget.category.name.replace("_", " ").capitalize(java.util.Locale.ROOT),
+                        text = budget.category.name.replace("_", " ").lowercase()
+                            .replaceFirstChar { it.titlecase(Locale.getDefault()) },
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text(
-                        text = "₹${String.format("%.0f", budget.amount)}",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
+                    Text("₹${budget.amount.roundToInt()}", style = MaterialTheme.typography.headlineSmall)
                 }
-                // Edit + Delete buttons
                 Row {
-                    IconButton(onClick = { showEditDialog = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit budget")
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete budget")
-                    }
+                    IconButton(onClick = onEdit, enabled = canEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit budget") }
+                    IconButton(onClick = onDelete, enabled = canDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete budget") }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
 
             LinearProgressIndicator(
                 progress = { progress.toFloat() },
                 modifier = Modifier.fillMaxWidth(),
-                color = if (progress > 1.0)
-                    MaterialTheme.colorScheme.error
-                else
-                    MaterialTheme.colorScheme.primary,
+                color = if (overspent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            val remaining = (budget.amount - spentAmount)
+            val remainingText = if (remaining >= 0) "₹${remaining.roundToInt()} left"
+            else "₹${(-remaining).roundToInt()} over"
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    text = "₹${String.format("%.0f", spentAmount)} spent",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Text(
-                    text = "${String.format("%.1f", progress * 100)}%",
+                    text = remainingText,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (progress > 1.0)
-                        MaterialTheme.colorScheme.error
-                    else
-                        MaterialTheme.colorScheme.primary
+                    color = if (remaining < 0) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-
-            // Debug info (remove in production)
-            errorMessage?.let {
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Debug: $it",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error
+                    text = "₹${spentAmount.roundToInt()} / ₹${budget.amount.roundToInt()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (overspent) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary
                 )
             }
         }
     }
-    // ✅ NEW: Edit dialog
-    if (showEditDialog) {
-        EditBudgetDialog(
-            budget = budget,
-            repo = repo,
-            syncManager = syncManager,
-            onDismiss = { showEditDialog = false }
-        )
-    }
 }
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddBudgetDialog(
-    monthStart: Long,
-    repo: BudgetRepository,
-    syncManager: SyncManager?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSave: (ExpenseCategory, Double) -> Unit
 ) {
     var selectedCategory by remember { mutableStateOf<ExpenseCategory?>(null) }
     var amountText by remember { mutableStateOf("") }
     var categoryExpanded by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -301,8 +231,14 @@ private fun AddBudgetDialog(
                     onExpandedChange = { categoryExpanded = !categoryExpanded }
                 ) {
                     OutlinedTextField(
-                        value = selectedCategory?.name?.replace("_", " ") ?: "Select category",
-                        onValueChange = {},
+                        value = selectedCategory?.name?.replace("_", " ")
+                            ?.lowercase()?.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+                            ?: "Select category",
+                        onValueChange = { input ->
+                            val filtered = input.filter { it.isDigit() || it == '.' }
+                            amountText = filtered
+                            error = null
+                        },
                         readOnly = true,
                         label = { Text("Category") },
                         modifier = Modifier.menuAnchor(),
@@ -312,9 +248,11 @@ private fun AddBudgetDialog(
                         expanded = categoryExpanded,
                         onDismissRequest = { categoryExpanded = false }
                     ) {
-                        ExpenseCategory.entries.forEach { cat ->
+                        ExpenseCategory.entries
+                            .sortedBy { it.name }
+                            .forEach { cat ->
                             DropdownMenuItem(
-                                text = { Text(cat.name.replace("_", " ").capitalize(Locale.ROOT)) },
+                                text = { Text(cat.name.replace("_", " ")) },
                                 onClick = {
                                     selectedCategory = cat
                                     categoryExpanded = false
@@ -326,128 +264,94 @@ private fun AddBudgetDialog(
 
                 OutlinedTextField(
                     value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Budget Amount") },
+                    onValueChange = { input ->
+                        val filtered = input.filter { it.isDigit() || it == '.' }
+                        amountText = filtered
+                        error = null
+                    },
+                    label = { Text("Budget amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    prefix = { Text("₹") }
+                    prefix = { Text("₹") },
+                    supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
                 )
             }
         },
         confirmButton = {
             Button(
+                enabled = selectedCategory != null && amountText.toDoubleOrNull()?.let { it > 0 } == true,
                 onClick = {
-                    val amount = amountText.toDoubleOrNull()
-                    if (selectedCategory != null && amount != null && amount > 0) {
-                        scope.launch {
-                            val existing = repo.getBudgetForCategory(selectedCategory!!, monthStart)
-                            if (existing != null) {
-                                // Budget already exists - pass to parent to show duplicate dialog
-                                // For now, just allow update (same as edit)
-                                repo.upsertBudget(selectedCategory!!, amount, monthStart, syncManager)
-                                onDismiss()
-                            } else {
-                                // New budget - save normally
-                                repo.upsertBudget(selectedCategory!!, amount, monthStart, syncManager)
-                                onDismiss()
-                            }
-                        }
+                    val amt = amountText.toDoubleOrNull()
+                    if (selectedCategory == null || amt == null || amt <= 0) {
+                        error = "Enter a valid category and amount"
+                        return@Button
                     }
+                    onSave(selectedCategory!!, amt)
                 }
-            ) {
-                Text("Save")
-            }
+            ) { Text("Save") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
-@Composable
-private fun DeleteBudgetDialog(
-    budget: BudgetEntity,
-    repo: BudgetRepository,
-    onDismiss: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Delete Budget") },
-        text = {
-            Text(
-                text = "Delete ${budget.category.name.replace("_", " ")} budget?",
-                style = MaterialTheme.typography.bodyLarge
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    scope.launch {
-                        repo.deleteBudget(budget.category, budget.monthStart)
-                        onDismiss()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Delete")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditBudgetDialog(
     budget: BudgetEntity,
-    repo: BudgetRepository,
-    syncManager: SyncManager?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onUpdate: (Double) -> Unit
 ) {
     var amountText by remember { mutableStateOf(budget.amount.toString()) }
-    val scope = rememberCoroutineScope()
+    var error by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit Budget") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Category: ${budget.category.name.replace("_", " ").capitalize(Locale.ROOT)}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-
+                Text("Category: ${budget.category.name.replace("_", " ")}")
                 OutlinedTextField(
                     value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Budget Amount") },
+                    onValueChange = { amountText = it; error = null },
+                    label = { Text("Budget amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     prefix = { Text("₹") },
+                    supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         },
         confirmButton = {
             Button(
+                enabled = amountText.toDoubleOrNull()?.let { it > 0 } == true,
                 onClick = {
-                    val amount = amountText.toDoubleOrNull()
-                    if (amount != null && amount > 0) {
-                        scope.launch {
-                            repo.upsertBudget(budget.category, amount, budget.monthStart, syncManager)
-                            onDismiss()
-                        }
+                    val amt = amountText.toDoubleOrNull()
+                    if (amt == null || amt <= 0) {
+                        error = "Enter a valid amount"
+                        return@Button
                     }
+                    onUpdate(amt)
                 }
-            ) {
-                Text("Update")
-            }
+            ) { Text("Update") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
+@Composable
+private fun DeleteBudgetDialog(
+    budget: BudgetEntity,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete Budget") },
+        text = { Text("Delete ${budget.category.name.replace("_", " ")} budget?") },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) { Text("Delete") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
