@@ -17,4 +17,11 @@ class PendingExpensesViewModel(
             repo.confirmExpenseBySmsHash(smsHash, category)
         }
     }
+
+    fun ignoreById(id: Long) {
+        viewModelScope.launch {
+            repo.ignoreExpenseById(id)
+        }
+    }
 }
+

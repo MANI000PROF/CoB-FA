@@ -83,21 +83,7 @@ object SmsTransactionParser {
         return ParsedTransaction(amount, type, merchant)
     }
 
-    /**
-     * Extract merchant from SMS.
-     *
-     * Priority 1: Sender code lookup (FAST, 100% reliable)
-     * Priority 2: Message body parsing (FALLBACK for unknown senders)
-     *
-     * This hybrid approach:
-     * - Uses known bank codes for reliable extraction
-     * - Handles unknown senders via body parsing
-     * - Enables fraud detection (unknown senders logged)
-     */
     private fun extractMerchant(sender: String?, body: String): String? {
-        // ============================================
-        // PRIORITY 1: Sender Code Lookup
-        // ============================================
 
         if (sender != null) {
             // Try direct sender-to-merchant mapping
@@ -113,17 +99,9 @@ object SmsTransactionParser {
             }
         }
 
-        // ============================================
-        // PRIORITY 2: Fallback to Body Parsing
-        // ============================================
-
         return extractMerchantFromBody(body)
     }
 
-    /**
-     * Extract merchant from message body (FALLBACK method).
-     * Only used if sender code is not recognized.
-     */
     private fun extractMerchantFromBody(text: String): String? {
         val lower = text.lowercase()
 
@@ -211,10 +189,6 @@ object SmsTransactionParser {
         return null  // Unknown/No merchant
     }
 
-    /**
-     * Extract a clean merchant segment from text.
-     * Stops at common delimiters: period, comma, newline, or reaches 40 chars
-     */
     private fun extractMerchantSegment(text: String): String {
         val delimiters = listOf(".", ",", "\n", "-", "via", "for", "on ", "at ", "dial", "call")
         var result = text.trim()
@@ -228,9 +202,6 @@ object SmsTransactionParser {
         return result.take(40).trim()
     }
 
-    /**
-     * Capitalize first letter of each word (for merchant names)
-     */
     private fun String.capitalizeWords(): String {
         return this.split(Regex("""\s+"""))
             .filter { it.isNotEmpty() }.joinToString(" ") { word ->

@@ -1,7 +1,5 @@
 package com.cobfa.app.data.repository
 
-import android.util.Log
-import androidx.room.Transaction
 import com.cobfa.app.data.local.dao.ExpenseDao
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.domain.model.ExpenseCategory
@@ -59,6 +57,11 @@ class ExpenseRepository(
         } else {
             ExpenseLogger.logConfirmationError(-1, "Confirmed row not found after update for smsHash=$smsHash")
         }
+    }
+
+    suspend fun ignoreExpenseById(id: Long) {
+        expenseDao.updateStatus(id, ExpenseStatus.DELETED)
+        // optional: sync to Firestore if you want deleted state reflected
     }
 
     suspend fun updateExpenseCategory(id: Long, category: ExpenseCategory) {

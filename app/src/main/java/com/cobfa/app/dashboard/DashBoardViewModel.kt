@@ -1,25 +1,29 @@
 package com.cobfa.app.dashboard
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
+import android.Manifest
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.local.entity.NudgeEventEntity
 import com.cobfa.app.data.repository.AnalyticsRepository
 import com.cobfa.app.data.repository.BudgetRepository
+import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.data.repository.GamificationRepository
 import com.cobfa.app.data.repository.PersonalizationRepository
 import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.domain.model.PersonalizedInsight
-import com.cobfa.app.insights_ml.debug.DebugFlags
+import com.cobfa.app.insights_ml.debug.SyntheticHistoryGenerator
+import com.cobfa.app.sms.SmsFilters
+import com.cobfa.app.sms.SmsInboxReader
+import com.cobfa.app.sms.SmsProcessor
 import com.cobfa.app.utils.ExpenseLogger
 import com.cobfa.app.utils.PreferenceManager
-import com.cobfa.app.insights_ml.debug.SyntheticHistoryGenerator
-import com.github.mikephil.charting.BuildConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -77,10 +81,21 @@ class DashboardViewModel(
         val suggestedAction: String? = null  // "reduce_zomato", "check_groceries"
     )
 
+    data class BudgetHealthUi(
+        val totalBudgets: Int = 0,
+        val withinBudget: Int = 0,
+        val overBudget: Int = 0
+    )
+
+    private val _budgetHealth = MutableStateFlow(BudgetHealthUi())
+    val budgetHealth: StateFlow<BudgetHealthUi> = _budgetHealth
+
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
     var onRefreshRequest: suspend () -> Unit = {}
+
+    val recentExpenses = expenseDao.observeConfirmedNewest()
 
     private val gamificationRepo = GamificationRepository(
         context = context,
@@ -92,16 +107,18 @@ class DashboardViewModel(
     )
 
     init {
+        onRefreshRequest = { scanSmsAndSync() }
         viewModelScope.launch {
             syncManager.restoreFromFirestore()
             syncManager.restoreBudgetsFromFirestore()
 
             // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
-//            debugGenerateHistory(weeks = 12)
+            // debugGenerateHistory(weeks = 12)
 
             // Check alerts after restore
             checkForBudgetAlerts()
             refreshPersonalizedInsights()
+            refreshBudgetHealth()
         }
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
@@ -126,9 +143,6 @@ class DashboardViewModel(
         }
     }
 
-    /**
-     * Manual refresh triggered by user pull-to-refresh gesture.
-     */
     fun refreshSms() {
         viewModelScope.launch {
             _isRefreshing.value = true
@@ -152,6 +166,23 @@ class DashboardViewModel(
         }
     }
 
+    private fun refreshBudgetHealth() {
+        viewModelScope.launch {
+            val monthStart = getMonthStart()
+            val usages = budgetRepo.getBudgetUsageForMonth(monthStart, expenseDao)
+
+            val total = usages.size
+            val over = usages.count { it.percentageUsed >= 100 }
+            val within = total - over
+
+            _budgetHealth.value = BudgetHealthUi(
+                totalBudgets = total,
+                withinBudget = within,
+                overBudget = over
+            )
+        }
+    }
+
     private fun getMonthStart(): Long {
         val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         calendar.set(Calendar.DAY_OF_MONTH, 1)
@@ -163,11 +194,12 @@ class DashboardViewModel(
     }
 
     private fun getMonthEnd(): Long {
-        val calendar = Calendar.getInstance()
+        val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         calendar.set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
         calendar.set(Calendar.HOUR_OF_DAY, 23)
         calendar.set(Calendar.MINUTE, 59)
         calendar.set(Calendar.SECOND, 59)
+        calendar.set(Calendar.MILLISECOND, 999)
         return calendar.timeInMillis
     }
 
@@ -445,7 +477,6 @@ class DashboardViewModel(
         logAlertAction("pattern_$action", details)
     }
 
-
     suspend fun suggestPatternBudget(merchant: String): Double {
         val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
         val recent = expenseDao.getExpensesBetween(weekAgo, System.currentTimeMillis())
@@ -485,4 +516,57 @@ class DashboardViewModel(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    suspend fun scanSmsAndSync() {
+        val context = this.context
+        val db = this.db
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) {
+            ExpenseLogger.logValidationFailed("permission", "READ_SMS", "not granted")
+            return
+        }
+
+        ExpenseLogger.logScanStart("DashboardScreen")
+
+        val now = System.currentTimeMillis()
+        val lastTs0 = PreferenceManager.getLastSmsTimestamp(context)
+        val bootstrapStart = now - 90L * 24 * 60 * 60 * 1000
+        val base = if (lastTs0 == 0L) bootstrapStart else lastTs0
+        val overlapMs = 2L * 60 * 60 * 1000
+        val since = (base - overlapMs).coerceAtLeast(0L)
+
+        val messages = SmsInboxReader.readRecentSmsSince(context, sinceMs = since, limit = 200)
+        ExpenseLogger.logSmsRead(messages.size)
+
+        val repo = ExpenseRepository(db.expenseDao(), syncManager)
+
+        var processedCount = 0
+        var skippedCount = 0
+
+        for (sms in messages) {
+            if (SmsFilters.isBlocked(sms.body)) {
+                skippedCount++
+                continue
+            }
+
+            val inserted = SmsProcessor.processWithDedup(
+                sender = sms.address,
+                body = sms.body,
+                timestamp = sms.timestamp,
+                repo = repo,
+                syncManager = syncManager
+            )
+
+            if (inserted) processedCount++ else skippedCount++
+        }
+
+        val newestTs = messages.maxOfOrNull { it.timestamp } ?: 0L
+        if (newestTs > 0) PreferenceManager.setLastSmsTimestamp(context, newestTs)
+
+        ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
+    }
 }

@@ -9,18 +9,6 @@ import com.cobfa.app.utils.ExpenseLogger
 
 object SmsProcessor {
 
-    private const val TAG = "SMS_PROCESSOR"
-
-    /**
-     * Process SMS with deduplication check.
-     *
-     * @param sender SMS sender address
-     * @param body SMS body text
-     * @param timestamp SMS timestamp (milliseconds)
-     * @param repo ExpenseRepository instance (pass to avoid creating new DB connections)
-     *
-     * @return true if expense was inserted, false if skipped (filtered or duplicate)
-     */
     suspend fun processWithDedup(
         sender: String?,
         body: String,

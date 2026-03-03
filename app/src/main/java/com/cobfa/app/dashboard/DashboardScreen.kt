@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +44,7 @@ import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
+import com.cobfa.app.ui.insights.InsightCard
 import com.cobfa.app.utils.PreferenceManager
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
@@ -79,6 +81,14 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
 
     val autoTrackingEnabled = PreferenceManager.isAutoTrackingEnabled(context)
+    val warnings by vm.budgetWarnings.collectAsState()
+
+    val budgetHealth by vm.budgetHealth.collectAsState()
+
+    var showExpenseSheet by remember { mutableStateOf(false) }
+    var showBalanceSheet by remember { mutableStateOf(false) }
+
+    val recentExpenses by db.expenseDao().observeConfirmedNewest().collectAsState(initial = emptyList())
 
     LaunchedEffect(Unit) {
         if (!autoTrackingEnabled) return@LaunchedEffect
@@ -88,11 +98,6 @@ fun DashboardScreen(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (granted) vm.refreshSms() else navController.navigate("sms_permission")
-    }
-
-    // Wire refresh callback
-    LaunchedEffect(Unit) {
-        vm.onRefreshRequest = { performSmsScan(context, db) }
     }
 
     // Badge snackbar (keep your existing behavior)
@@ -107,9 +112,29 @@ fun DashboardScreen(
         }
     }
 
+    if (showExpenseSheet) {
+        ExpenseDetailSheet(
+            expenses = recentExpenses,
+            onViewAll = {
+                showExpenseSheet = false
+                navController.navigate("expenses")
+            },
+            onDismiss = { showExpenseSheet = false }
+        )
+    }
+
+    summary?.let { s ->
+        if (showBalanceSheet) {
+            BalanceDetailSheet(
+                summary = s,
+                onDismiss = { showBalanceSheet = false }
+            )
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { Text("Dashboard") },
                 actions = {
                     IconButton(onClick = { navController.navigate("settings") }) {
@@ -158,7 +183,6 @@ fun DashboardScreen(
 
                 // 2) Budget warnings (show max 2 to reduce clutter)
                 item {
-                    val warnings = vm.budgetWarnings.collectAsState().value
                     warnings.take(2).forEach { warning ->
                         BudgetWarningBadge(
                             warning = warning,
@@ -186,14 +210,28 @@ fun DashboardScreen(
                     }
                 }
 
+                item {
+                    BudgetHealthCard(
+                        health = budgetHealth,
+                        onViewBudgets = { navController.navigate("budgets") }
+                    )
+                }
+
                 // Summary
                 item {
-                    summary?.let { SummarySectionCards(it) }
+                    summary?.let {
+                        SummarySectionCards(
+                            summary = it,
+                            onIncomeClick = { /* maybe later: show income breakdown */ },
+                            onExpenseClick = { showExpenseSheet = true },
+                            onBalanceClick = { showBalanceSheet = true }
+                        )
+                    }
                 }
 
                 // Insights
                 item {
-                    com.cobfa.app.ui.insights.InsightCard(insights = insights)
+                    InsightCard(insights = insights)
                 }
 
                 // Pending expenses (non-scroll, top 3)

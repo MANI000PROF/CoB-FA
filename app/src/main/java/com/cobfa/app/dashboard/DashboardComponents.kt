@@ -1,7 +1,5 @@
 package com.cobfa.app.dashboard
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -27,6 +25,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -46,21 +46,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
-import com.cobfa.app.data.local.db.ExpenseDatabase
-import com.cobfa.app.data.remote.FirestoreService
-import com.cobfa.app.data.repository.ExpenseRepository
-import com.cobfa.app.data.repository.SyncManager
-import com.cobfa.app.sms.SmsFilters
-import com.cobfa.app.sms.SmsInboxReader
-import com.cobfa.app.sms.SmsProcessor
+import com.cobfa.app.data.local.entity.ExpenseEntity
+import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.ui.expense.category.CategoryPickerBottomSheet
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
-import com.cobfa.app.utils.ExpenseLogger
-import com.cobfa.app.utils.PreferenceManager
 import java.net.URLEncoder
-
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -242,7 +233,7 @@ fun AlertBanner(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("⚠️ ${alert.ruleType}", style = MaterialTheme.typography.titleSmall)
+                Text(friendlyTitle(alert.ruleType), style = MaterialTheme.typography.titleSmall)
                 Text(alert.message, style = MaterialTheme.typography.bodySmall)
             }
             Row {
@@ -253,6 +244,15 @@ fun AlertBanner(
             }
         }
     }
+}
+
+private fun friendlyTitle(ruleType: String): String = when (ruleType) {
+    "BUDGET_100" -> "Budget exceeded"
+    "BUDGET_80" -> "Budget at risk"
+    "MERCHANT_3X" -> "Repeated merchant spending"
+    "CATEGORY_5X" -> "Spending spree"
+    "HIGHVALUE_3X" -> "High-value spending"
+    else -> "Spending alert"
 }
 
 @Composable
@@ -275,71 +275,13 @@ fun CriticalAlertDialog(
     )
 }
 
-suspend fun performSmsScan(
-    context: android.content.Context,
-    db: ExpenseDatabase
-) {
-    val granted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_SMS
-    ) == PackageManager.PERMISSION_GRANTED
-
-    if (!granted) {
-        ExpenseLogger.logValidationFailed("permission", "READ_SMS", "not granted")
-        return
-    }
-
-    ExpenseLogger.logScanStart("DashboardScreen")
-
-    val firestoreService = FirestoreService()
-    val syncManager = SyncManager(db, firestoreService)
-    val repo = ExpenseRepository(db.expenseDao(), syncManager)
-
-    // ---- Incremental scan cursor (bootstrap + overlap) ----
-    val now = System.currentTimeMillis()
-    val lastTs0 = PreferenceManager.getLastSmsTimestamp(context)
-
-    // Bootstrap: if never scanned, start from last 90 days (bounded, safe for demo)
-    val bootstrapStart = now - 90L * 24 * 60 * 60 * 1000
-    val base = if (lastTs0 == 0L) bootstrapStart else lastTs0
-
-    // Overlap avoids missing messages around the boundary
-    val overlapMs = 2L * 60 * 60 * 1000
-    val since = (base - overlapMs).coerceAtLeast(0L)
-    // ------------------------------------------------------
-
-    val messages = SmsInboxReader.readRecentSmsSince(context, sinceMs = since, limit = 200)
-    ExpenseLogger.logSmsRead(messages.size)
-
-    var processedCount = 0
-    var skippedCount = 0
-
-    for (sms in messages) {
-        if (SmsFilters.isBlocked(sms.body)) {
-            skippedCount++
-            continue
-        }
-
-        val inserted = SmsProcessor.processWithDedup(
-            sender = sms.address,
-            body = sms.body,
-            timestamp = sms.timestamp,
-            repo = repo,
-            syncManager = syncManager
-        )
-
-        if (inserted) processedCount++ else skippedCount++
-    }
-
-    // IMPORTANT: advance cursor based on newest *seen* SMS, not only inserted ones
-    val newestTs = messages.maxOfOrNull { it.timestamp } ?: 0L
-    if (newestTs > 0) PreferenceManager.setLastSmsTimestamp(context, newestTs)
-
-    ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
-}
-
 @Composable
-fun SummarySectionCards(summary: com.cobfa.app.domain.model.MonthlySummary) {
+fun SummarySectionCards(
+    summary: com.cobfa.app.domain.model.MonthlySummary,
+    onIncomeClick: () -> Unit = {},
+    onExpenseClick: () -> Unit = {},
+    onBalanceClick: () -> Unit = {}
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -349,14 +291,16 @@ fun SummarySectionCards(summary: com.cobfa.app.domain.model.MonthlySummary) {
             title = "Income",
             amount = summary.income,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            onClick = onIncomeClick
         )
 
         SummaryCard(
             title = "Expense",
             amount = summary.expense,
             color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            onClick = onExpenseClick
         )
 
         SummaryCard(
@@ -366,7 +310,8 @@ fun SummarySectionCards(summary: com.cobfa.app.domain.model.MonthlySummary) {
                 MaterialTheme.colorScheme.tertiary
             else
                 MaterialTheme.colorScheme.error,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            onClick = onBalanceClick
         )
     }
 }
@@ -391,52 +336,55 @@ fun ActionButtons(
 
         Spacer(Modifier.height(12.dp))
 
-        Button(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            onClick = onLogout
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Logout")
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onViewBudgets
+            ) { Text("Budgets") }
+
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onViewAnalytics
+            ) { Text("Analytics") }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
-        Button(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            onClick = onViewBudgets
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Budgets")
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onViewAchievements
+            ) { Text("Achievements") }
+
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = onViewLeaderboard
+            ) { Text("Leaderboard") }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onViewAnalytics
-        ) {
-            Text("Analytics")
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onViewAchievements
-        ) { Text("Achievements") }
-
-        Spacer(Modifier.height(12.dp))
-
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onViewLeaderboard
-        ) { Text("Leaderboard") }
-
-        Spacer(Modifier.height(12.dp))
-
-        Button(
+        FilledTonalButton(
             modifier = Modifier.fillMaxWidth(),
             onClick = onViewExpenses
         ) {
             Text("View Expenses")
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Optional: keep logout here or move it to Settings
+        TextButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onLogout
+        ) {
+            Text("Logout")
         }
     }
 }
@@ -486,7 +434,10 @@ fun PendingExpensesSectionScrollable(vm: PendingExpensesViewModel) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                        Button(onClick = { selectedExpenseId = e.id }) { Text("Confirm") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { selectedExpenseId = e.id }) { Text("Confirm") }
+                            TextButton(onClick = { vm.ignoreById(e.id) }) { Text("Ignore") }
+                        }
                     }
                 }
 
@@ -513,3 +464,116 @@ fun PendingExpensesSectionScrollable(vm: PendingExpensesViewModel) {
     }
 }
 
+@Composable
+fun BudgetHealthCard(
+    health: DashboardViewModel.BudgetHealthUi,
+    onViewBudgets: () -> Unit
+) {
+    if (health.totalBudgets == 0) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Budget health",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${health.withinBudget}/${health.totalBudgets} budgets within limit",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (health.overBudget > 0)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (health.overBudget > 0) {
+                Text(
+                    "${health.overBudget} over budget",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onViewBudgets) {
+                Text("View details")
+            }
+        }
+    }
+}
+
+@Composable
+fun ExpenseDetailSheet(
+    expenses: List<ExpenseEntity>,
+    onViewAll: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("This month’s expenses") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 400.dp)
+            ) {
+                expenses.take(5).forEach { e ->
+                    Text(
+                        text = "₹${"%.0f".format(e.amount)} • ${e.merchant ?: "Unknown"}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                if (expenses.size > 5) {
+                    Text(
+                        text = "+ ${expenses.size - 5} more",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onViewAll) { Text("View all") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+
+@Composable
+fun BalanceDetailSheet(
+    summary: MonthlySummary,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Balance details") },
+        text = {
+            Column {
+                Text("Income:  ₹${"%.0f".format(summary.income)}")
+                Text("Expense: ₹${"%.0f".format(summary.expense)}")
+                Spacer(Modifier.height(8.dp))
+                Divider()
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Balance = Income - Expense",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "₹${"%.0f".format(summary.income)} - ₹${"%.0f".format(summary.expense)} = ₹${"%.0f".format(summary.balance)}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        dismissButton = {}
+    )
+}
