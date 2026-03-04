@@ -19,6 +19,15 @@ import com.cobfa.app.insights_ml.ml.LrFeatures
 import com.cobfa.app.insights_ml.reco.AlternativesCatalog
 import java.time.ZoneId
 
+// Cooldown constants so we can tune later
+private const val ML_DISMISS_LOOKBACK_DAYS = 7L
+private const val ML_SOFT_COOLDOWN_DAYS = 3L
+private const val ML_STRICT_COOLDOWN_HOURS = 12L
+private const val ML_MIN_TRAIN_WEEKS = 6
+private const val ML_MIN_TRAIN_ROWS = 20
+private const val ML_MAX_TOP_CATEGORIES = 3
+private const val ML_RISK_THRESHOLD = 0.75
+
 @RequiresApi(Build.VERSION_CODES.O)
 class MlInsightsEngine(
     private val context: Context,
@@ -43,38 +52,6 @@ class MlInsightsEngine(
         val dataset = WeeklyDatasetBuilder(zoneId).buildRows(expenses, nowMs)
         if (dataset.isEmpty()) return emptyList()
 
-//        if (DebugFlags.ENABLE_DEBUG_LOGS) {
-//            LrLearningCurve.runMultiWeekCurve(context, dataset, epochs = 60, k = 3, minTrainWeeks = 6)
-//        }
-
-//        // ---- Debug backtests (kept here for now) ----
-//        if (DebugFlags.ENABLE_DEBUG_LOGS) {
-//            val rfmFull = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-//                RfmRiskBaseline.score(row, useMoney = true, useBudget = true)
-//            }
-//            val rfmNoMoney = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-//                RfmRiskBaseline.score(row, useMoney = false, useBudget = true)
-//            }
-//            val rfmNoBudget = RollingBacktest.evalPrecisionRecallAtK(dataset, k = 3) { row ->
-//                RfmRiskBaseline.score(row, useMoney = true, useBudget = false)
-//            }
-//
-//            Log.d(
-//                "ML_BACKTEST",
-//                "weeks=${rfmFull.weeks} " +
-//                        "RFM(full P@3=${"%.2f".format(rfmFull.precisionAtK)} R@3=${"%.2f".format(rfmFull.recallAtK)}) " +
-//                        "RFM(-money P@3=${"%.2f".format(rfmNoMoney.precisionAtK)} R@3=${"%.2f".format(rfmNoMoney.recallAtK)}) " +
-//                        "RFM(-budget P@3=${"%.2f".format(rfmNoBudget.precisionAtK)} R@3=${"%.2f".format(rfmNoBudget.recallAtK)})"
-//            )
-//
-//            val lrBt = LrRollingBacktest.eval(dataset, k = 3, minTrainWeeks = 2)
-//            Log.d(
-//                "ML_BACKTEST",
-//                "LR(weeks=${lrBt.weeks} P@3=${"%.2f".format(lrBt.precisionAtK)} R@3=${"%.2f".format(lrBt.recallAtK)})"
-//            )
-//        }
-//        // --------------------------------------------
-
         val thisWeekStart = TimeBucketing.isoWeekStartMillis(nowMs, zoneId)
         val thisMonthStart = TimeBucketing.monthStartMillis(nowMs, zoneId)
 
@@ -89,12 +66,14 @@ class MlInsightsEngine(
             .filter { it.weekStart == thisWeekStart }
             .map { r -> r.copy(budgetUsagePct = usageMap[r.category.name]) }
 
-        val canTrainLr = dataset.groupBy { it.weekStart }.keys.size >= 6
+        // Require enough weeks and rows before training LR [web:582][web:578]
+        val distinctWeeks = dataset.groupBy { it.weekStart }.keys.size
+        val canTrainLr = distinctWeeks >= ML_MIN_TRAIN_WEEKS
 
         // Train LR ONCE (reused for all categories)
         val lrModel: LogRegSgd? = if (canTrainLr) {
             val trainRows = dataset.filter { it.weekStart < thisWeekStart }
-            if (trainRows.size < 20) null else {
+            if (trainRows.size < ML_MIN_TRAIN_ROWS) null else {
                 val xs = trainRows.map { LrFeatures.toX(it) }
                 val ys = trainRows.map { it.labelRepeatNextWeek }
                 LogRegSgd(dim = 6, lr = 0.05, l2 = 0.0005).apply {
@@ -106,12 +85,12 @@ class MlInsightsEngine(
         val lrWeights: DoubleArray? = lrModel?.weights()
 
         // Anti-spam
-        val since = nowMs - 7L * 24 * 60 * 60 * 1000
+        val sinceDismiss = nowMs - ML_DISMISS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
 
         val scored = mutableListOf<Pair<WeeklyDatasetBuilder.Row, Double>>()
         for (r in currentWeekRows) {
             val dismissed = try {
-                nudgeDao.countDismissedSince("ml_risk_cat", r.category.name, since) > 0
+                nudgeDao.countDismissedSince("ml_risk_cat", r.category.name, sinceDismiss) > 0
             } catch (_: Throwable) {
                 false
             }
@@ -123,17 +102,25 @@ class MlInsightsEngine(
             scored.add(r to score)
         }
 
-        val top = scored.sortedByDescending { it.second }.take(3)
+        val top = scored.sortedByDescending { it.second }.take(ML_MAX_TOP_CATEGORIES)
         if (top.isEmpty()) return emptyList()
 
-        // Log "shown" with 12h cooldown
+        // Log "shown" with soft (3d) and strict (12h) cooldowns per category [web:574][web:570]
         val prefs = context.getSharedPreferences("cobfa_ml", Context.MODE_PRIVATE)
-        val cooldownMs = 12L * 60 * 60 * 1000
+        val strictCooldownMs = ML_STRICT_COOLDOWN_HOURS * 60 * 60 * 1000
+        val softCooldownMs = ML_SOFT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
+
+        val shownNow = mutableSetOf<String>()
 
         top.forEach { (r, _) ->
             val key = "ml_shown_${r.category.name}"
             val last = prefs.getLong(key, 0L)
-            if (nowMs - last < cooldownMs) return@forEach
+            val elapsed = nowMs - last
+
+            // If we’ve shown in last 12h, skip completely
+            if (elapsed in 0 until strictCooldownMs) return@forEach
+            // Soft cooldown: if shown in last 3 days, skip unless there is no other category
+            if (elapsed in strictCooldownMs until softCooldownMs && shownNow.isNotEmpty()) return@forEach
 
             nudgeDao.insert(
                 NudgeEventEntity(
@@ -144,11 +131,12 @@ class MlInsightsEngine(
                 )
             )
             prefs.edit().putLong(key, nowMs).apply()
+            shownNow.add(r.category.name)
         }
 
         return top.map { (r, risk) ->
             val pct = (risk * 100).toInt().coerceIn(0, 100)
-            val severity = if (risk >= 0.75) InsightSeverity.RISK else InsightSeverity.WARN
+            val severity = if (risk >= ML_RISK_THRESHOLD) InsightSeverity.RISK else InsightSeverity.WARN
 
             val reasons = if (lrWeights != null) {
                 val topContribs = LrExplain.topContributions(r, lrWeights)
@@ -172,6 +160,7 @@ class MlInsightsEngine(
                     daysSinceLast = r.daysSinceLast,
                     budgetUsagePct = r.budgetUsagePct
                 )
+                Log.d("ML_REMOTE_AI_PROMPT", prompt)
                 AlternativesCatalog.suggestionsFor(r.category, r.budgetUsagePct)
             } else {
                 AlternativesCatalog.suggestionsFor(r.category, r.budgetUsagePct)
@@ -179,11 +168,15 @@ class MlInsightsEngine(
 
             val sug = sugList.take(2).joinToString(" ") { "• ${it.title}: ${it.detail}" }
 
+            val reasonsText = reasons.ifBlank {
+                "Based on your recent pattern in ${r.category.name}."
+            }
+            val suggestionsText = if (sug.isNotBlank()) " Suggestions: $sug" else ""
+
             PersonalizedInsight(
                 key = "ml_risk_${r.category.name}",
-                title = "${r.category.name}: repeat risk $pct%",
-                message = (reasons.ifBlank { "Based on your recent pattern in ${r.category.name}." }) +
-                        " " + sug,
+                title = "${r.category.name}: high repeat risk (${pct}%)",
+                message = reasonsText + suggestionsText,
                 severity = severity
             )
         }

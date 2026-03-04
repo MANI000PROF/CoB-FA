@@ -1,11 +1,5 @@
 package com.cobfa.app.sms
 
-/**
- * Maps standardized Indian bank sender codes to merchant names.
- * This is the PRIMARY method for merchant extraction.
- *
- * Source: RBI-approved bank sender IDs used in India
- */
 object SenderMerchantMapper {
 
     private val senderToMerchantMap = mapOf(
@@ -64,14 +58,6 @@ object SenderMerchantMapper {
         "VODAFONE" to "Vodafone",
     )
 
-    /**
-     * Get merchant name from sender code.
-     *
-     * Example:
-     *   getMerchantFromSender("CANBNK") → "Canara Bank"
-     *   getMerchantFromSender("HDFCBK") → "HDFC Bank"
-     *   getMerchantFromSender("UNKNOWN") → null (not in registry)
-     */
     fun getMerchantFromSender(sender: String?): String? {
         if (sender == null || sender.isBlank()) {
             return null
@@ -81,30 +67,9 @@ object SenderMerchantMapper {
         return senderToMerchantMap[senderCode]
     }
 
-    /**
-     * Check if sender is a KNOWN/TRUSTED bank code.
-     * Useful for fraud detection.
-     *
-     * Example:
-     *   isTrustedSender("CANBNK") → true
-     *   isTrustedSender("RANDOMBANK") → false
-     */
     fun isTrustedSender(sender: String?): Boolean {
         if (sender == null) return false
         return getMerchantFromSender(sender) != null
     }
 
-    /**
-     * Get all registered sender codes (for logging, debugging)
-     */
-    fun getRegisteredSenders(): Set<String> {
-        return senderToMerchantMap.keys
-    }
-
-    /**
-     * Get total number of registered senders
-     */
-    fun getRegisteredCount(): Int {
-        return senderToMerchantMap.size
-    }
 }

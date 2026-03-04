@@ -11,14 +11,21 @@ import com.cobfa.app.domain.model.ExpenseType
 import com.cobfa.app.domain.model.InsightSeverity
 import com.cobfa.app.domain.model.PersonalizedInsight
 import com.cobfa.app.insights_ml.core.MlInsightsEngine
+import com.cobfa.app.insights_ml.data.TimeBucketing
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
+// Threshold constants so we can tune later without spelunking
+private const val WEEKEND_SPIKE_RATIO = 1.8
+private const val TREND_RATIO_MIN = 1.25
+private const val TREND_EMA_MIN = 200.0
+private const val BUDGET_PACE_DAYS_THRESHOLD = 3
+
 @RequiresApi(Build.VERSION_CODES.O)
-class PersonalizationRepository(
+class PersonalizedRepository(
     private val context: Context,
     private val expenseDao: ExpenseDao,
     private val budgetRepo: BudgetRepository,
@@ -26,9 +33,11 @@ class PersonalizationRepository(
     private val zoneId: ZoneId = ZoneId.systemDefault()
 ) {
     private val mlEngine = MlInsightsEngine(context, expenseDao, budgetRepo, nudgeDao, zoneId)
+
     suspend fun computeInsightsForCurrentMonth(): List<PersonalizedInsight> {
         val now = System.currentTimeMillis()
-        val monthStart = monthStartMillis(now)
+        // Use the same month bucketing as ML/time helpers for consistency [web:553][web:549]
+        val monthStart = TimeBucketing.monthStartMillis(now, zoneId)
         val monthEnd = now
 
         val expenses = expenseDao.getExpensesBetween(monthStart, monthEnd)
@@ -38,8 +47,8 @@ class PersonalizationRepository(
             return listOf(
                 PersonalizedInsight(
                     key = "no_data",
-                    title = "No confirmed spends found",
-                    message = "No CONFIRMED DEBIT expenses in the current month range yet.",
+                    title = "No confirmed spends yet",
+                    message = "No confirmed debit expenses so far this month. Once you add a few spends, we’ll start showing insights here.",
                     severity = InsightSeverity.INFO
                 )
             )
@@ -89,33 +98,43 @@ class PersonalizationRepository(
                 PersonalizedInsight(
                     key = "action_rate_7d",
                     title = "Action follow-through (7d)",
-                    message = "Good actions: ${rate}% (dismiss: $dismissCount).",
+                    message = "In the last 7 days, you followed through on ${rate}% of alerts (ignored $dismissCount).",
                     severity = if (rate >= 60) InsightSeverity.INFO else InsightSeverity.WARN
                 )
             )
         }
 
         weekendSpikeInsight(expenses)?.let { insights.add(it) }
-
         topCategoryTrendingInsight(expenses)?.let { insights.add(it) }
 
         insights.addAll(budgetPaceInsights(monthStart).filterNotNull())
         insights.addAll(mlEngine.computeMlInsights(now))
 
+        // Severity first, then ML vs non-ML, so important non-ML isn’t buried [web:560]
         return insights.sortedWith(
-            compareByDescending<PersonalizedInsight> { it.key.startsWith("ml_") }
-                .thenByDescending { it.severity } // RISK before WARN/INFO
+            compareByDescending<PersonalizedInsight> { it.severity }
+                .thenByDescending { it.key.startsWith("ml_") }
         ).toList()
     }
 
     private fun weekendSpikeInsight(expenses: List<com.cobfa.app.data.local.entity.ExpenseEntity>): PersonalizedInsight? {
+        if (expenses.isEmpty()) return null
+
         val byDow = expenses.groupBy { epochToLocalDate(it.timestamp).dayOfWeek }
 
         val weekend = (byDow[DayOfWeek.SATURDAY].orEmpty().sumOf { it.amount }) +
                 (byDow[DayOfWeek.SUNDAY].orEmpty().sumOf { it.amount })
 
         val total = expenses.sumOf { it.amount }
+        if (total <= 0.0) return null
+
         val weekday = total - weekend
+
+        // Early‑data guardrail: require at least one weekend and one weekday present
+        val uniqueDays = expenses.map { epochToLocalDate(it.timestamp) }.toSet()
+        val hasWeekend = uniqueDays.any { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY }
+        val hasWeekday = uniqueDays.any { it.dayOfWeek !in listOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY) }
+        if (!hasWeekend || !hasWeekday) return null
 
         // Average per day (simple normalization)
         val avgWeekend = weekend / 2.0
@@ -124,7 +143,7 @@ class PersonalizationRepository(
         if (avgWeekday <= 0) return null
         val ratio = avgWeekend / avgWeekday
 
-        return if (ratio >= 1.8) {
+        return if (ratio >= WEEKEND_SPIKE_RATIO) {
             PersonalizedInsight(
                 key = "weekend_spike",
                 title = "Weekend spike risk",
@@ -135,6 +154,12 @@ class PersonalizationRepository(
     }
 
     private fun topCategoryTrendingInsight(expenses: List<com.cobfa.app.data.local.entity.ExpenseEntity>): PersonalizedInsight? {
+        if (expenses.isEmpty()) return null
+
+        // Early‑data guardrail: if we’ve seen fewer than 10 distinct days, skip trend to avoid noise
+        val uniqueDays = expenses.map { epochToLocalDate(it.timestamp) }.toSet()
+        if (uniqueDays.size < 10) return null
+
         // Last 14 days buckets
         val endDay = LocalDate.now(zoneId)
         val startDay = endDay.minusDays(13)
@@ -155,13 +180,12 @@ class PersonalizationRepository(
                 dayMap[day] ?: 0.0
             }
 
-            // EMA(7) on last 14 values; alpha = 2/(N+1) [web:171][web:174]
             val ema7 = ema(series, alpha = 2.0 / (7.0 + 1.0))
             val first7Avg = series.take(7).average()
             val second7Avg = series.takeLast(7).average()
 
-            // Trending if recent week > previous week by 25% and EMA not tiny
-            if (first7Avg > 0 && second7Avg >= first7Avg * 1.25 && ema7 >= 200.0) {
+            // Trending if recent week > previous week by threshold and EMA not tiny
+            if (first7Avg > 0 && second7Avg >= first7Avg * TREND_RATIO_MIN && ema7 >= TREND_EMA_MIN) {
                 val score = (second7Avg / first7Avg)
                 if (best == null || score > best!!.second) best = cat to score
             }
@@ -196,7 +220,7 @@ class PersonalizationRepository(
 
             val daysTo80 = (remainingTo80 / dailyAvg).toInt()
 
-            if (daysTo80 in 0..3) {
+            if (daysTo80 in 0..BUDGET_PACE_DAYS_THRESHOLD) {
                 PersonalizedInsight(
                     key = "pace_${u.category.name}",
                     title = "Budget pace warning",
@@ -216,10 +240,10 @@ class PersonalizationRepository(
     }
 
     private fun epochToLocalDate(epochMs: Long): LocalDate =
-        Instant.ofEpochMilli(epochMs).atZone(zoneId).toLocalDate() // explicit ZoneId conversion [web:181]
+        Instant.ofEpochMilli(epochMs).atZone(zoneId).toLocalDate() // [web:561][web:549]
 
     private fun monthStartMillis(nowMs: Long): Long {
         val d = epochToLocalDate(nowMs)
-        return d.withDayOfMonth(1).atStartOfDay(zoneId).toInstant().toEpochMilli() // [web:181]
+        return d.withDayOfMonth(1).atStartOfDay(zoneId).toInstant().toEpochMilli() // [web:553][web:549]
     }
 }

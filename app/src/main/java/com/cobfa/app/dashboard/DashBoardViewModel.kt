@@ -14,7 +14,7 @@ import com.cobfa.app.data.repository.AnalyticsRepository
 import com.cobfa.app.data.repository.BudgetRepository
 import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.data.repository.GamificationRepository
-import com.cobfa.app.data.repository.PersonalizationRepository
+import com.cobfa.app.data.repository.PersonalizedRepository
 import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.domain.model.ExpenseStatus
 import com.cobfa.app.domain.model.ExpenseType
@@ -119,7 +119,7 @@ class DashboardViewModel(
             syncManager.restoreBudgetsFromFirestore()
 
             // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
-            // debugGenerateHistory(weeks = 12)
+//            debugGenerateHistory(weeks = 12)
 
             // Check alerts after restore
             checkForBudgetAlerts()
@@ -539,7 +539,7 @@ class DashboardViewModel(
         }
     }
 
-    private val personalizationRepo = PersonalizationRepository(context, expenseDao, budgetRepo, nudgeEventDao)
+    private val personalizationRepo = PersonalizedRepository(context, expenseDao, budgetRepo, nudgeEventDao)
 
     private fun refreshPersonalizedInsights() {
         viewModelScope.launch {
