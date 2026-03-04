@@ -112,6 +112,17 @@ fun DashboardScreen(
         }
     }
 
+    var balanceSteps by remember { mutableStateOf<List<DashboardViewModel.BalanceStep>>(emptyList()) }
+    var loadingBalance by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showBalanceSheet) {
+        if (showBalanceSheet) {
+            loadingBalance = true
+            balanceSteps = vm.computeBalanceBreakdown()
+            loadingBalance = false
+        }
+    }
+
     if (showExpenseSheet) {
         ExpenseDetailSheet(
             expenses = recentExpenses,
@@ -127,6 +138,8 @@ fun DashboardScreen(
         if (showBalanceSheet) {
             BalanceDetailSheet(
                 summary = s,
+                steps = balanceSteps,
+                loading = loadingBalance,
                 onDismiss = { showBalanceSheet = false }
             )
         }

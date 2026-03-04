@@ -16,6 +16,8 @@ import com.cobfa.app.data.repository.ExpenseRepository
 import com.cobfa.app.data.repository.GamificationRepository
 import com.cobfa.app.data.repository.PersonalizationRepository
 import com.cobfa.app.data.repository.SyncManager
+import com.cobfa.app.domain.model.ExpenseStatus
+import com.cobfa.app.domain.model.ExpenseType
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.domain.model.PersonalizedInsight
 import com.cobfa.app.insights_ml.debug.SyntheticHistoryGenerator
@@ -87,6 +89,12 @@ class DashboardViewModel(
         val overBudget: Int = 0
     )
 
+    data class BalanceStep(
+        val label: String,       // "Start", "Food", "Rent", "Other"
+        val amount: Double,      // the debit for this step (0 for start)
+        val remainingAfter: Double
+    )
+
     private val _budgetHealth = MutableStateFlow(BudgetHealthUi())
     val budgetHealth: StateFlow<BudgetHealthUi> = _budgetHealth
 
@@ -94,8 +102,6 @@ class DashboardViewModel(
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
     var onRefreshRequest: suspend () -> Unit = {}
-
-    val recentExpenses = expenseDao.observeConfirmedNewest()
 
     private val gamificationRepo = GamificationRepository(
         context = context,
@@ -141,6 +147,50 @@ class DashboardViewModel(
                 delay(5_000)
             }
         }
+    }
+
+    suspend fun computeBalanceBreakdown(): List<BalanceStep> {
+        val monthStart = getMonthStart()
+        val monthEnd = getMonthEnd()
+
+        val summaryNow = summary.value ?: return emptyList()
+        val income = summaryNow.income
+        val expense = summaryNow.expense
+
+        // Get category-wise spend (similar to observeSpentByCategory; you can reuse that DAO)
+        val totals = expenseDao.getExpensesBetween(monthStart, monthEnd)
+            .filter { it.status == ExpenseStatus.CONFIRMED && it.type == ExpenseType.DEBIT }
+            .groupBy { it.category?.name ?: "Other" }
+            .mapValues { (_, list) -> list.sumOf { it.amount } }
+            .toList()
+            .sortedByDescending { it.second }  // biggest categories first
+
+        val steps = mutableListOf<BalanceStep>()
+        var remaining = income
+
+        steps.add(
+            BalanceStep(
+                label = "Start (income)",
+                amount = 0.0,
+                remainingAfter = remaining
+            )
+        )
+
+        for ((label, amt) in totals) {
+            remaining -= amt
+            steps.add(
+                BalanceStep(
+                    label = label,
+                    amount = amt,
+                    remainingAfter = remaining
+                )
+            )
+        }
+
+        // If total expenses != summary.expense (rounding, ignored categories), we can add an "Other" step,
+        // but for now we keep it simple.
+
+        return steps
     }
 
     fun refreshSms() {

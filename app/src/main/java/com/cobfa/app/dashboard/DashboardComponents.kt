@@ -544,31 +544,79 @@ fun ExpenseDetailSheet(
     )
 }
 
-
 @Composable
 fun BalanceDetailSheet(
     summary: MonthlySummary,
+    steps: List<DashboardViewModel.BalanceStep>,
+    loading: Boolean,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Balance details") },
+        title = { Text("Balance breakdown") },
         text = {
-            Column {
-                Text("Income:  ₹${"%.0f".format(summary.income)}")
-                Text("Expense: ₹${"%.0f".format(summary.expense)}")
-                Spacer(Modifier.height(8.dp))
-                Divider()
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Balance = Income - Expense",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "₹${"%.0f".format(summary.income)} - ₹${"%.0f".format(summary.expense)} = ₹${"%.0f".format(summary.balance)}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            if (loading) {
+                Text("Loading breakdown…")
+            } else {
+                Column {
+                    Text(
+                        "Income: ₹${"%.0f".format(summary.income)}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "Total expense: ₹${"%.0f".format(summary.expense)}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "How your money was used:",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    steps.forEach { step ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = step.label,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (step.amount > 0) {
+                                Text(
+                                    text = "-₹${"%.0f".format(step.amount)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Text(
+                                    text = "₹${"%.0f".format(step.remainingAfter)}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Remaining: ₹${"%.0f".format(step.remainingAfter)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Divider()
+                    Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        "Final balance: ₹${"%.0f".format(summary.balance)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (summary.balance >= 0)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.error
+                    )
+                }
             }
         },
         confirmButton = {
@@ -577,3 +625,4 @@ fun BalanceDetailSheet(
         dismissButton = {}
     )
 }
+
