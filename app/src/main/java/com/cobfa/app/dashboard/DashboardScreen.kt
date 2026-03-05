@@ -12,17 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,7 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.data.repository.ExpenseRepository
@@ -53,8 +47,13 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(
-    navController: NavController,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onOpenBudgets: () -> Unit,
+    onOpenAnalytics: () -> Unit,
+    onOpenExpenses: (merchant: String?) -> Unit,
+    onOpenAchievements: () -> Unit,
+    onOpenLeaderboard: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
 ) {
     val context = LocalContext.current
     val db = remember { ExpenseDatabase.getInstance(context) }
@@ -97,7 +96,7 @@ fun DashboardScreen(
             context, Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (granted) vm.refreshSms() else navController.navigate("sms_permission")
+        if (granted) vm.refreshSms() else onRequestSmsPermission()
     }
 
     // Badge snackbar (keep your existing behavior)
@@ -128,7 +127,7 @@ fun DashboardScreen(
             expenses = recentExpenses,
             onViewAll = {
                 showExpenseSheet = false
-                navController.navigate("expenses")
+                onOpenExpenses(null)
             },
             onDismiss = { showExpenseSheet = false }
         )
@@ -149,11 +148,7 @@ fun DashboardScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Dashboard") },
-                actions = {
-                    IconButton(onClick = { navController.navigate("settings") }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                }
+                actions = {}
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -187,7 +182,7 @@ fun DashboardScreen(
                             PatternActionSheet(
                                 alert = alert,
                                 vm = vm,
-                                navController = navController,
+                                onOpenExpensesForMerchant = { onOpenExpenses(it) },
                                 onDismiss = { showPatternActions = false }
                             )
                         }
@@ -200,7 +195,8 @@ fun DashboardScreen(
                         BudgetWarningBadge(
                             warning = warning,
                             vm = vm,
-                            navController = navController
+                            onOpenBudgets = onOpenBudgets,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -216,7 +212,7 @@ fun DashboardScreen(
                                 onDismiss = { vm.onAlertActionTaken("later") }, // record “Later”
                                 onAdjust = {
                                     vm.onAlertActionTaken("adjust")             // record “Adjust”
-                                    navController.navigate("budgets")
+                                    onOpenBudgets()
                                 }
                             )
                         }
@@ -226,7 +222,7 @@ fun DashboardScreen(
                 item {
                     BudgetHealthCard(
                         health = budgetHealth,
-                        onViewBudgets = { navController.navigate("budgets") }
+                        onViewBudgets = { onOpenBudgets() }
                     )
                 }
 
@@ -255,16 +251,12 @@ fun DashboardScreen(
                 // Actions (keep your modular component)
                 item {
                     ActionButtons(
-                        onLogout = {
-                            FirebaseAuth.getInstance().signOut()
-                            onLogout()
-                        },
-                        onViewExpenses = { navController.navigate("expenses") },
+                        onViewExpenses = { onOpenExpenses(null) },
                         onAddExpense = { showManualDialog = true },
-                        onViewBudgets = { navController.navigate("budgets") },
-                        onViewAnalytics = { navController.navigate("analytics") },
-                        onViewAchievements = { navController.navigate("achievements") },
-                        onViewLeaderboard = { navController.navigate("leaderboard") }
+                        onViewBudgets = onOpenBudgets,
+                        onViewAnalytics = onOpenAnalytics,
+                        onViewAchievements = onOpenAchievements,
+                        onViewLeaderboard = onOpenLeaderboard
                     )
                 }
 

@@ -60,6 +60,6 @@ fun LaunchScreen(
                 .getValue(Boolean::class.java) ?: false
         }.getOrDefault(false)
 
-        if (completed) onNavigate("dashboard") else onNavigate("profile")
+        if (completed) onNavigate("main") else onNavigate("profile")
     }
 }

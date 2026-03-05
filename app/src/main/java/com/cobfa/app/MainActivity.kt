@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
 import com.cobfa.app.navigation.AppNavigation
+import com.cobfa.app.ui.theme.CoBFATheme
 import com.cobfa.app.utils.GamificationScheduler
 import com.google.firebase.FirebaseApp
 
@@ -19,7 +20,9 @@ class MainActivity : ComponentActivity() {
         GamificationScheduler.schedulePeriodic(this)
 
         setContent {
-            AppNavigation()
+            CoBFATheme {
+                AppNavigation()
+            }
         }
     }
 }

@@ -46,19 +46,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.ui.expense.category.CategoryPickerBottomSheet
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
-import java.net.URLEncoder
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun PatternActionSheet(
     alert: DashboardViewModel.BudgetAlert,
     vm: DashboardViewModel,
-    navController: NavController,
+    onOpenExpensesForMerchant: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val merchant = alert.category
@@ -119,7 +117,7 @@ fun PatternActionSheet(
                             Icon(Icons.Default.History, null)
                         },
                         modifier = Modifier.clickable {
-                            navController.navigate("expenses?merchant=${URLEncoder.encode(merchant, "UTF-8")}")
+                            onOpenExpensesForMerchant(merchant)
                             vm.logPatternAction("view_history", merchant)
                             onDismiss()
                         }
@@ -170,7 +168,7 @@ fun PatternActionSheet(
 fun BudgetWarningBadge(
     warning: DashboardViewModel.BudgetWarning,
     vm: DashboardViewModel,
-    navController: NavController,
+    onOpenBudgets: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -199,7 +197,7 @@ fun BudgetWarningBadge(
             }
             TextButton(onClick = {
                 vm.logGenericNudge(type = "BUDGET_80", category = warning.category, action = "details")
-                navController.navigate("budgets")
+                onOpenBudgets()
             }) {
                 Text("Details")
             }
@@ -319,7 +317,6 @@ fun SummarySectionCards(
 @Composable
 fun ActionButtons(
     onAddExpense: () -> Unit,
-    onLogout: () -> Unit,
     onViewExpenses: () -> Unit,
     onViewBudgets: () -> Unit,
     onViewAnalytics: () -> Unit,
@@ -375,16 +372,6 @@ fun ActionButtons(
             onClick = onViewExpenses
         ) {
             Text("View Expenses")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // Optional: keep logout here or move it to Settings
-        TextButton(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onLogout
-        ) {
-            Text("Logout")
         }
     }
 }

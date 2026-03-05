@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -23,7 +24,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val expenses by vm.expenses.collectAsState()
@@ -33,8 +34,10 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val sortMode by vm.sortMode.collectAsState()
 
     var categoryMenuExpanded by remember { mutableStateOf(false) }
+    val merchantFilter by vm.merchantFilter.collectAsState()
     val hasActiveFilters =
-        searchQuery.isNotBlank() || categoryFilter != null || onlyUncat || sortMode != ExpenseListViewModel.SortMode.NEWEST
+        searchQuery.isNotBlank() || categoryFilter != null || merchantFilter != null ||
+                onlyUncat || sortMode != ExpenseListViewModel.SortMode.NEWEST
 
     var selectedExpense by remember { mutableStateOf<ExpenseEntity?>(null) }
     var showDetailsSheet by remember { mutableStateOf(false) }
@@ -43,8 +46,16 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Expenses") },
+                scrollBehavior = scrollBehavior
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
@@ -53,9 +64,6 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 .padding(padding)
                 .padding(16.dp)
         ) {
-            Text("Your Expenses", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(12.dp))
-
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = vm::updateSearchQuery,
@@ -63,9 +71,16 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { vm.updateSearchQuery("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                    when {
+                        hasActiveFilters -> {
+                            IconButton(onClick = { vm.clearFilters() }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear filters")
+                            }
+                        }
+                        searchQuery.isNotBlank() -> {
+                            IconButton(onClick = { vm.updateSearchQuery("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            }
                         }
                     }
                 }
@@ -77,6 +92,15 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                merchantFilter?.let { m ->
+                    FilterChip(
+                        selected = true,
+                        onClick = { vm.updateMerchantFilter(null) },
+                        label = { Text(m, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        leadingIcon = { Icon(Icons.Default.Clear, contentDescription = "Clear merchant filter") }
+                    )
+                }
+
                 FilterChip(
                     selected = categoryFilter == null,
                     onClick = { vm.updateCategoryFilter(null) },
@@ -165,10 +189,6 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                     },
                     label = { Text("Excluded only") }
                 )
-
-                if (hasActiveFilters) {
-                    TextButton(onClick = { vm.clearFilters() }) { Text("Clear") }
-                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -186,7 +206,7 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 val grouped = remember(expenses) { expenses.groupBy { dayFmt.format(Date(it.timestamp)) } }
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
@@ -278,8 +298,7 @@ private fun ExpenseRow(
     expense: ExpenseEntity,
     onClick: () -> Unit
 ) {
-    val formatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-
+    val timeFmt = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
     val isCredit = expense.type == ExpenseType.CREDIT
     val amountColor = if (isCredit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
     val typeLabel = if (isCredit) "Credit" else "Debit"
@@ -323,7 +342,7 @@ private fun ExpenseRow(
                     }
 
                     Text(
-                        text = formatter.format(Date(expense.timestamp)),
+                        text = timeFmt.format(Date(expense.timestamp)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -389,7 +408,11 @@ private fun ExpenseDetailsBottomSheet(
         )
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
         Column(Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -408,23 +431,16 @@ private fun ExpenseDetailsBottomSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            Text("Merchant: ${expense.merchant ?: "Unknown"}")
-            Text("Amount: ₹${String.format("%.0f", expense.amount)}")
-            Text("Type: $typeLabel")
-            Text("Source: ${expense.source}")
-            Text("Date: ${fmt.format(Date(expense.timestamp))}")
-            Text("Category: ${(expense.category?.name ?: "Uncategorized").replace("_", " ")}")
+            SheetRow("Merchant", expense.merchant ?: "Unknown")
+            SheetRow("Amount", "₹${String.format("%.0f", expense.amount)}")
+            SheetRow("Type", typeLabel)
+            SheetRow("Source", expense.source?.toString().orEmpty())
+            SheetRow("Date", fmt.format(Date(expense.timestamp)))
+            SheetRow("Category", (expense.category?.name ?: "Uncategorized").replace("_", " "))
 
             Spacer(Modifier.height(16.dp))
 
             Button(
-                onClick = onChangeCategory,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Change category") }
-
-            Spacer(Modifier.height(10.dp))
-
-            OutlinedButton(
                 onClick = onEdit,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Edit") }
@@ -432,12 +448,32 @@ private fun ExpenseDetailsBottomSheet(
             Spacer(Modifier.height(10.dp))
 
             OutlinedButton(
-                onClick = { confirmDelete = true },
+                onClick = onChangeCategory,
                 modifier = Modifier.fillMaxWidth()
+            ) { Text("Change category") }
+
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = { confirmDelete = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) { Text("Exclude") }
 
             Spacer(Modifier.height(12.dp))
         }
+    }
+}
+
+@Composable
+private fun SheetRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(12.dp))
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -452,7 +488,11 @@ private fun EditExpenseBottomSheet(
     var amountText by remember(expense.id) { mutableStateOf(String.format("%.0f", expense.amount)) }
     var amountError by remember { mutableStateOf<String?>(null) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
+    ) {
         Column(Modifier.padding(16.dp)) {
             Text("Edit expense", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
@@ -476,7 +516,8 @@ private fun EditExpenseBottomSheet(
                 label = { Text("Amount (₹)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                prefix = { Text("₹") },
                 isError = amountError != null,
                 supportingText = {
                     amountError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -485,17 +526,27 @@ private fun EditExpenseBottomSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            Button(
-                onClick = {
-                    val amt = amountText.trim().toDoubleOrNull()
-                    if (amt == null || amt < 0.0) {
-                        amountError = "Enter a valid amount"
-                        return@Button
-                    }
-                    onSave(merchant.trim().ifBlank { null }, amt)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Save") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Cancel") }
+
+                Button(
+                    onClick = {
+                        val amt = amountText.trim().toDoubleOrNull()
+                        if (amt == null || amt < 0.0) {
+                            amountError = "Enter a valid amount"
+                            return@Button
+                        }
+                        onSave(merchant.trim().ifBlank { null }, amt)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Save") }
+            }
 
             Spacer(Modifier.height(12.dp))
         }
