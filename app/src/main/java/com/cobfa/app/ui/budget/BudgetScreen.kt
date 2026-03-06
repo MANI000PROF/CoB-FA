@@ -8,12 +8,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.cobfa.app.data.local.entity.BudgetEntity
@@ -30,81 +33,84 @@ fun BudgetScreen(vm: BudgetViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedBudgetForDelete by remember { mutableStateOf<BudgetEntity?>(null) }
     var editBudget by remember { mutableStateOf<BudgetEntity?>(null) }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     LaunchedEffect(Unit) {
         vm.restoreBudgetsFromFirestoreOnce()
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { vm.prevMonth() }) {
-                            Text("‹", style = MaterialTheme.typography.titleLarge)
-                        }
-                        Text(
-                            ui.monthLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        IconButton(
-                            onClick = { vm.nextMonth() },
-                            enabled = ui.canGoNextMonth
-                        ) {
-                            Text("›", style = MaterialTheme.typography.titleLarge)
-                        }
-                    }
-                },
+                title = { Text("Budgets") },
                 actions = {
                     if (ui.isCurrentMonth) {
                         IconButton(onClick = { showAddDialog = true }) {
                             Icon(Icons.Default.Add, contentDescription = "Add budget")
                         }
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
 
-        if (ui.rows.isEmpty()) {
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("No budgets set yet", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Tap + to create your first budget",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                IconButton(onClick = { vm.prevMonth() }) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = "Previous month")
+                }
+                Text(ui.monthLabel, style = MaterialTheme.typography.titleMedium)
+                IconButton(onClick = { vm.nextMonth() }, enabled = ui.canGoNextMonth) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Next month")
+                }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(ui.rows, key = { it.budget.id }) { row ->
-                    BudgetRow(
-                        budget = row.budget,
-                        spentAmount = row.spent,
-                        progress = row.progress,
-                        canEdit = isCurrentMonth,
-                        canDelete = isCurrentMonth,
-                        onEdit = { editBudget = row.budget },
-                        onDelete = { selectedBudgetForDelete = row.budget }
+
+            if (ui.rows.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("No budgets set yet", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Tap + to create your first budget",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(ui.rows, key = { it.budget.id }) { row ->
+                        BudgetRow(
+                            budget = row.budget,
+                            spentAmount = row.spent,
+                            progress = row.progress,
+                            canEdit = isCurrentMonth,
+                            canDelete = isCurrentMonth,
+                            onEdit = { editBudget = row.budget },
+                            onDelete = { selectedBudgetForDelete = row.budget }
+                        )
+                    }
                 }
             }
         }
     }
-
     if (showAddDialog) {
         AddBudgetDialog(
             onDismiss = { showAddDialog = false },
@@ -148,13 +154,15 @@ private fun BudgetRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val overspent = spentAmount > budget.amount && budget.amount > 0
     val pct = if (budget.amount > 0) (spentAmount / budget.amount * 100.0) else 0.0
+    val isWarn = pct >= 80.0 && pct < 100.0
+    val isOver = pct >= 100.0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (overspent) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surface
+            containerColor = if (isOver) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -169,7 +177,7 @@ private fun BudgetRow(
                             .replaceFirstChar { it.titlecase(Locale.getDefault()) },
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text("₹${budget.amount.roundToInt()}", style = MaterialTheme.typography.headlineSmall)
+                    Text("₹${budget.amount.roundToInt()}", style = MaterialTheme.typography.titleLarge)
                 }
                 Row {
                     IconButton(onClick = onEdit, enabled = canEdit) { Icon(Icons.Default.Edit, contentDescription = "Edit budget") }
@@ -180,9 +188,13 @@ private fun BudgetRow(
             Spacer(Modifier.height(12.dp))
 
             LinearProgressIndicator(
-                progress = { progress.toFloat() },
+                progress = { progress.toFloat().coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth(),
-                color = if (overspent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                color = when {
+                    isOver -> MaterialTheme.colorScheme.error
+                    isWarn -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
+                },
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
 
@@ -202,8 +214,11 @@ private fun BudgetRow(
                 Text(
                     text = "₹${spentAmount.roundToInt()} / ₹${budget.amount.roundToInt()}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (overspent) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary
+                    color = when {
+                        isOver -> MaterialTheme.colorScheme.error
+                        isWarn -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    }
                 )
             }
         }
@@ -234,11 +249,7 @@ private fun AddBudgetDialog(
                         value = selectedCategory?.name?.replace("_", " ")
                             ?.lowercase()?.replaceFirstChar { it.titlecase(Locale.getDefault()) }
                             ?: "Select category",
-                        onValueChange = { input ->
-                            val filtered = input.filter { it.isDigit() || it == '.' }
-                            amountText = filtered
-                            error = null
-                        },
+                        onValueChange = {},
                         readOnly = true,
                         label = { Text("Category") },
                         modifier = Modifier.menuAnchor(),
@@ -272,7 +283,9 @@ private fun AddBudgetDialog(
                     label = { Text("Budget amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     prefix = { Text("₹") },
-                    supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
+                    supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
             }
         },

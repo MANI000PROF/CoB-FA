@@ -1,4 +1,4 @@
-package com.cobfa.app.dashboard
+package com.cobfa.app.ui.dashboard
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*

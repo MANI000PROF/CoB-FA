@@ -1,4 +1,4 @@
-package com.cobfa.app.dashboard
+package com.cobfa.app.ui.dashboard
 
 import android.content.Context
 import android.content.pm.PackageManager
@@ -619,4 +619,41 @@ class DashboardViewModel(
 
         ExpenseLogger.logScanComplete(processedCount, skippedCount, "DashboardScreen")
     }
+
+    private fun insightPrefs() =
+        context.getSharedPreferences("cobfa_insights", Context.MODE_PRIVATE)
+
+    private fun dismissedInsightsKey(): String = "dismissed_insights"
+    private fun doneInsightsKey(): String = "done_insights"
+
+    private fun getStringSetSafe(key: String): MutableSet<String> {
+        // Always copy because getStringSet can return a mutable reference tied to prefs. [web:391]
+        val raw = insightPrefs().getStringSet(key, emptySet()) ?: emptySet()
+        return raw.toMutableSet()
+    }
+
+    private fun putStringSet(key: String, values: Set<String>) {
+        insightPrefs().edit().putStringSet(key, values.toSet()).apply()
+    }
+
+    fun markInsightDone(key: String) {
+        val done = getStringSetSafe(doneInsightsKey())
+        done.add(key)
+        putStringSet(doneInsightsKey(), done)
+        refreshPersonalizedInsights()
+    }
+
+    fun dismissInsight(key: String) {
+        val dismissed = getStringSetSafe(dismissedInsightsKey())
+        dismissed.add(key)
+        putStringSet(dismissedInsightsKey(), dismissed)
+        refreshPersonalizedInsights()
+    }
+
+    private fun isInsightHidden(key: String): Boolean {
+        val dismissed = insightPrefs().getStringSet(dismissedInsightsKey(), emptySet()) ?: emptySet()
+        val done = insightPrefs().getStringSet(doneInsightsKey(), emptySet()) ?: emptySet()
+        return dismissed.contains(key) || done.contains(key)
+    }
+
 }

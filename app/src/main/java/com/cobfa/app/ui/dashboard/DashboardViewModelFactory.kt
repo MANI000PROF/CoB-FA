@@ -1,4 +1,4 @@
-package com.cobfa.app.dashboard
+package com.cobfa.app.ui.dashboard
 
 import android.content.Context
 import android.os.Build

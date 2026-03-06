@@ -1,54 +1,576 @@
 package com.cobfa.app.ui.insights
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cobfa.app.domain.model.InsightSeverity
 import com.cobfa.app.domain.model.PersonalizedInsight
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun InsightCard(
     insights: List<PersonalizedInsight>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onAction: (InsightAction) -> Unit
 ) {
-//    if (insights.isEmpty()) return
-    // Always show the card (so you can verify wiring)
+    var selected by rememberSaveable { mutableStateOf<String?>(null) } // store key only (saveable-safe)
+    var showAll by rememberSaveable { mutableStateOf(false) }
 
-    Card(modifier = modifier.fillMaxWidth()) {
+    val selectedInsight = remember(insights, selected) { insights.firstOrNull { it.key == selected } }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+
+    fun closeSheet() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion {
+            selected = null
+            showAll = false
+        }
+    }
+
+    if (selectedInsight != null) {
+        ModalBottomSheet(
+            onDismissRequest = { selected = null },
+            sheetState = sheetState
+        ) {
+            InsightDetailSheet(
+                insight = selectedInsight,
+                onAction = onAction,
+                onClose = { closeSheet() }
+            )
+        }
+    }
+
+    if (showAll) {
+        ModalBottomSheet(
+            onDismissRequest = { showAll = false },
+            sheetState = sheetState
+        ) {
+            AllInsightsSheet(
+                insights = insights,
+                onInsightClick = { ins -> selected = ins.key },
+                onClose = { closeSheet() }
+            )
+        }
+    }
+
+    ElevatedCard(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (insights.isEmpty()) {
-                Text("No insights yet. Confirm a few expenses first.", style = MaterialTheme.typography.bodySmall)
-            }
-            else {
-                Text("Personalized insights", style = MaterialTheme.typography.titleMedium)
+            HeaderRow(onOpenAll = { showAll = true })
 
-                insights.take(3).forEach { ins ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        val tag = when (ins.severity) {
-                            InsightSeverity.INFO -> "INFO"
-                            InsightSeverity.WARN -> "WARN"
-                            InsightSeverity.RISK -> "RISK"
+            val primary = insights.firstOrNull()
+            if (primary == null) {
+                EmptyState()
+            } else {
+                PrimaryInsight(
+                    ins = primary,
+                    onDoThis = { selected = primary.key },
+                    onNotUseful = { selected = primary.key }
+                )
+
+                val secondary = insights.drop(1).take(2)
+                if (secondary.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        secondary.forEach { ins ->
+                            SecondaryChip(ins = ins, onClick = { selected = ins.key })
                         }
-                        Text(tag, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(end = 8.dp))
-                        Column {
-                            Text(ins.title, style = MaterialTheme.typography.bodyMedium)
-                            Text(ins.message, style = MaterialTheme.typography.bodySmall)
-                        }
+                    }
+                }
+
+                if (insights.size > 3) {
+                    TextButton(onClick = { showAll = true }) {
+                        Text("+ ${insights.size - 3} more insights")
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun HeaderRow(onOpenAll: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("AI insights", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Small actions that build discipline",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onOpenAll) {
+            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Open all insights")
+        }
+    }
+}
+
+@Composable
+private fun EmptyState() {
+    Text("No insights yet", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+    Text(
+        "Confirm a few expenses and we’ll start coaching you.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun PrimaryInsight(
+    ins: PersonalizedInsight,
+    onDoThis: () -> Unit,
+    onNotUseful: () -> Unit
+) {
+    val colors = severityColors(ins.severity)
+    var expanded by rememberSaveable(ins.key) { mutableStateOf(false) }
+
+    val (reasons, suggestionsRaw) = splitSuggestions(ins.message)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Title row (clean)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(severityIcon(ins.severity), null, tint = colors.accent)
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = ins.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = when (ins.severity) {
+                    InsightSeverity.INFO -> "Tip"
+                    InsightSeverity.WARN -> "Watch"
+                    InsightSeverity.RISK -> "Risk"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.accent
+            )
+        }
+
+        // ✅ Suggestions as HERO (not buried)
+        SuggestionHeroInline(
+            suggestionsRaw = suggestionsRaw,
+            onClick = onDoThis
+        )
+
+        // Reasons (not duplicated)
+        if (reasons.isNotBlank()) {
+            Text(
+                text = reasons,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (expanded) 50 else 3,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = if (expanded) "See less" else "See more",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { expanded = !expanded }
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AssistChip(
+                onClick = onDoThis,
+                label = { Text("Do this") },
+                leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = colors.container,
+                    labelColor = colors.accent,
+                    leadingIconContentColor = colors.accent
+                )
+            )
+            AssistChip(onClick = onNotUseful, label = { Text("Not useful") })
+        }
+    }
+}
+
+@Composable
+private fun SuggestionHeroInline(
+    suggestionsRaw: String,
+    onClick: () -> Unit
+) {
+    val cleaned = suggestionsRaw.trim()
+    if (cleaned.isBlank()) return
+
+    val first = cleaned
+        .split("•")
+        .map { it.trim() }
+        .firstOrNull { it.isNotBlank() }
+        ?: return
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = androidx.compose.material3.CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "Suggested swap",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = first,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Tap to see details",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SecondaryChip(ins: PersonalizedInsight, onClick: () -> Unit) {
+    val colors = severityColors(ins.severity)
+    AssistChip(
+        onClick = onClick,
+        label = { Text(ins.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = { Icon(severityIcon(ins.severity), null, tint = colors.accent) }
+    )
+}
+
+@Composable
+private fun InsightDetailSheet(
+    insight: PersonalizedInsight,
+    onAction: (InsightAction) -> Unit,
+    onClose: () -> Unit
+) {
+    val (reasons, suggestions) = splitSuggestions(insight.message)
+    val resources = curatedResourcesFor(insight)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 620.dp) // sheet max height
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        // --- Scrollable content ---
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 12.dp)
+        ) {
+            item {
+                Text("Insight", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(insight.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
+
+            if (reasons.isNotBlank()) {
+                item {
+                    Text(
+                        reasons,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            item {
+                SuggestionsBlockFromText(suggestions)
+            }
+
+            if (resources.isNotEmpty()) {
+                item {
+                    ResourcesBlock(
+                        resources = resources,
+                        onOpenUrl = { url -> onAction(InsightAction.OpenUrl(url)) }
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        // --- Sticky actions (always visible) ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilledTonalButton(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    onAction(InsightAction.SetBudget(insight.key))
+                    onClose()
+                }
+            ) { Text("Set budget") }
+
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = onClose
+            ) { Text("Close") }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AssistChip(
+                onClick = {
+                    onAction(InsightAction.MarkDone(insight.key))
+                    onClose()
+                },
+                label = { Text("Done") },
+                leadingIcon = { Icon(Icons.Default.Done, null) }
+            )
+
+            AssistChip(
+                onClick = {
+                    onAction(InsightAction.NotUseful(insight.key))
+                    onClose()
+                },
+                label = { Text("Not useful") }
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+private fun splitSuggestions(message: String): Pair<String, String> {
+    val marker = "Suggestions:"
+    val idx = message.indexOf(marker, ignoreCase = true)
+    return if (idx < 0) {
+        message.trim() to ""
+    } else {
+        val reasons = message.substring(0, idx).trim()
+        val suggestions = message.substring(idx + marker.length).trim()
+        reasons to suggestions
+    }
+}
+
+@Composable
+private fun SuggestionsBlockFromText(suggestionsText: String) {
+    val items = suggestionsText
+        .split("•")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+    if (items.isEmpty()) return
+
+    ElevatedCard(
+        colors = androidx.compose.material3.CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Suggested swap",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            items.take(4).forEach { s ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Text("• ", color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        s,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun curatedResourcesFor(ins: PersonalizedInsight): List<InsightResourceUi> {
+    // Offline, deterministic mapping. Add more keys over time.
+    return when {
+        ins.key.startsWith("ml_risk_", ignoreCase = true) -> listOf(
+            InsightResourceUi("Atomic Habits (habit loop ideas)", "https://jamesclear.com/atomic-habits", InsightResourceTypeUi.ARTICLE),
+            InsightResourceUi("Tiny Habits (free method)", "https://tinyhabits.com/", InsightResourceTypeUi.TOOL)
+        )
+
+        ins.key == "top_category_share" -> listOf(
+            InsightResourceUi("Budgeting basics", "https://www.investopedia.com/terms/b/budget.asp", InsightResourceTypeUi.ARTICLE)
+        )
+
+        else -> emptyList()
+    }
+}
+
+private data class InsightResourceUi(
+    val title: String,
+    val url: String,
+    val type: InsightResourceTypeUi
+)
+
+private enum class InsightResourceTypeUi { VIDEO, ARTICLE, TOOL }
+
+@Composable
+private fun ResourcesBlock(
+    resources: List<InsightResourceUi>,
+    onOpenUrl: (String) -> Unit
+) {
+    Text("Learn more", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+
+    resources.take(6).forEachIndexed { index, r ->
+        androidx.compose.material3.ListItem(
+            headlineContent = { Text(r.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = { Text(r.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            leadingContent = { Text(if (r.type == InsightResourceTypeUi.VIDEO) "▶" else "↗") },
+            modifier = Modifier.clickable { onOpenUrl(r.url) },
+            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent)
+        ) // ListItemDefaults.colors(containerColor=...) is the supported API. [web:192]
+
+        if (index != minOf(resources.size, 6) - 1) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
+}
+
+@Composable
+private fun AllInsightsSheet(
+    insights: List<PersonalizedInsight>,
+    onInsightClick: (PersonalizedInsight) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(modifier = Modifier.padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("All insights", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("Close") }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        LazyColumn(
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.heightIn(max = 520.dp)
+        ) {
+            items(
+                count = insights.size,
+                key = { idx -> insights[idx].key } // stable keys recommended for lazy lists. [web:388]
+            ) { idx ->
+                val ins = insights[idx]
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onInsightClick(ins) }
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            ins.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            ins.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class SeverityUiColors(val accent: Color, val container: Color)
+
+@Composable
+private fun severityColors(severity: InsightSeverity): SeverityUiColors {
+    val cs = MaterialTheme.colorScheme
+    return when (severity) {
+        InsightSeverity.INFO -> SeverityUiColors(cs.primary, cs.primary.copy(alpha = 0.12f))
+        InsightSeverity.WARN -> SeverityUiColors(cs.tertiary, cs.tertiary.copy(alpha = 0.12f))
+        InsightSeverity.RISK -> SeverityUiColors(cs.error, cs.error.copy(alpha = 0.12f))
+    }
+}
+
+private fun severityIcon(severity: InsightSeverity) = when (severity) {
+    InsightSeverity.INFO -> Icons.Default.Info
+    InsightSeverity.WARN -> Icons.Default.WarningAmber
+    InsightSeverity.RISK -> Icons.Default.Report
 }

@@ -33,7 +33,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.cobfa.app.dashboard.DashboardScreen
+import com.cobfa.app.ui.dashboard.DashboardScreen
 import com.cobfa.app.data.local.db.ExpenseDatabase
 import com.cobfa.app.data.remote.FirestoreService
 import com.cobfa.app.data.repository.BudgetRepository
@@ -115,15 +115,18 @@ fun MainScaffold(
 
             composable("dashboard") {
                 DashboardScreen(
-                    onLogout = onLogoutToAuth,
                     onOpenBudgets = { mainNavController.navigate("budgets") },
                     onOpenAnalytics = { mainNavController.navigate("analytics") },
                     onOpenExpenses = { merchant ->
                         if (merchant.isNullOrBlank()) {
-                            mainNavController.navigate("expenses?merchant={merchant}") { launchSingleTop = true }
+                            mainNavController.navigate("expenses?merchant={merchant}") {
+                                launchSingleTop = true
+                            }
                         } else {
                             val encoded = URLEncoder.encode(merchant, "UTF-8")
-                            mainNavController.navigate("expenses?merchant=$encoded") { launchSingleTop = true }
+                            mainNavController.navigate("expenses?merchant=$encoded") {
+                                launchSingleTop = true
+                            }
                         }
                     },
                     onOpenAchievements = { rootNavController.navigate("achievements") },

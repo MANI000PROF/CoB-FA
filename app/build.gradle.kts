@@ -86,5 +86,6 @@ dependencies {
 
     implementation(libs.mpandroidchart)
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.browser:browser:1.8.0")
 
 }
