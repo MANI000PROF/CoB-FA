@@ -13,12 +13,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import com.cobfa.app.auth.otp.OtpScreen
 import com.cobfa.app.auth.phone.PhoneAuthScreen
 import com.cobfa.app.auth.phone.PhoneAuthViewModel
@@ -41,6 +39,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.data.local.db.ExpenseDatabase
+import com.cobfa.app.ui.profile.AccountInsightsScreen
+import com.cobfa.app.ui.profile.ProfileScreen
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -152,17 +152,25 @@ fun AppNavigation() {
             }
 
             MainScaffold(
-                rootNavController = navController,
-                onLogoutToAuth = {
-                    FirebaseAuth.getInstance().signOut()
-                    navController.navigate("auth") { popUpTo(0) }
-                }
+                rootNavController = navController
             )
         }
 
         // Secondary routes (no bottom bar)
         composable("settings") {
             SettingsScreen(navController)
+        }
+
+        composable("profile_view") {
+            ProfileScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("account_insights") {
+            AccountInsightsScreen(
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable("achievements") {

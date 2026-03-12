@@ -61,7 +61,6 @@ class DashboardViewModel(
     private val _activeAlert = MutableStateFlow<BudgetAlert?>(null)
     val activeAlert: StateFlow<BudgetAlert?> = _activeAlert
 
-    // ADD after activeAlert
     private val _budgetWarnings = MutableStateFlow<List<BudgetWarning>>(emptyList())
     val budgetWarnings: StateFlow<List<BudgetWarning>> = _budgetWarnings
 
@@ -78,9 +77,9 @@ class DashboardViewModel(
     data class BudgetAlert(
         val category: String,
         val percentage: Int,
-        val ruleType: String,  // "BUDGET_80", "BUDGET_100"
+        val ruleType: String,
         val message: String,
-        val suggestedAction: String? = null  // "reduce_zomato", "check_groceries"
+        val suggestedAction: String? = null
     )
 
     data class BudgetHealthUi(
@@ -90,8 +89,8 @@ class DashboardViewModel(
     )
 
     data class BalanceStep(
-        val label: String,       // "Start", "Food", "Rent", "Other"
-        val amount: Double,      // the debit for this step (0 for start)
+        val label: String,
+        val amount: Double,
         val remainingAfter: Double
     )
 
@@ -100,6 +99,15 @@ class DashboardViewModel(
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
+    private val _isInitialLoadDone = MutableStateFlow(false)
+    val isInitialLoadDone: StateFlow<Boolean> = _isInitialLoadDone
+
+    private val _isBudgetHealthResolved = MutableStateFlow(false)
+    val isBudgetHealthResolved: StateFlow<Boolean> = _isBudgetHealthResolved
+
+    private val _isInsightsResolved = MutableStateFlow(false)
+    val isInsightsResolved: StateFlow<Boolean> = _isInsightsResolved
 
     var onRefreshRequest: suspend () -> Unit = {}
 
@@ -114,18 +122,20 @@ class DashboardViewModel(
 
     init {
         onRefreshRequest = { scanSmsAndSync() }
+
         viewModelScope.launch {
-            syncManager.restoreFromFirestore()
-            syncManager.restoreBudgetsFromFirestore()
+            try {
+                syncManager.restoreFromFirestore()
+                syncManager.restoreBudgetsFromFirestore()
 
-            // DEBUG ONLY: generate 12 weeks synthetic history once for evaluation
-//            debugGenerateHistory(weeks = 12)
-
-            // Check alerts after restore
-            checkForBudgetAlerts()
-            refreshPersonalizedInsights()
-            refreshBudgetHealth()
+                checkForBudgetAlerts()
+                refreshPersonalizedInsights()
+                refreshBudgetHealth()
+            } finally {
+                _isInitialLoadDone.value = true
+            }
         }
+
         viewModelScope.launch {
             val prefs = context.getSharedPreferences("cobfa_gamification", Context.MODE_PRIVATE)
             var lastTs = prefs.getLong("last_nudge_processed_ts", 0L)
@@ -155,15 +165,13 @@ class DashboardViewModel(
 
         val summaryNow = summary.value ?: return emptyList()
         val income = summaryNow.income
-        val expense = summaryNow.expense
 
-        // Get category-wise spend (similar to observeSpentByCategory; you can reuse that DAO)
         val totals = expenseDao.getExpensesBetween(monthStart, monthEnd)
             .filter { it.status == ExpenseStatus.CONFIRMED && it.type == ExpenseType.DEBIT }
             .groupBy { it.category?.name ?: "Other" }
             .mapValues { (_, list) -> list.sumOf { it.amount } }
             .toList()
-            .sortedByDescending { it.second }  // biggest categories first
+            .sortedByDescending { it.second }
 
         val steps = mutableListOf<BalanceStep>()
         var remaining = income
@@ -187,27 +195,22 @@ class DashboardViewModel(
             )
         }
 
-        // If total expenses != summary.expense (rounding, ignored categories), we can add an "Other" step,
-        // but for now we keep it simple.
-
         return steps
     }
 
     fun refreshSms() {
         viewModelScope.launch {
             _isRefreshing.value = true
-
             try {
                 ExpenseLogger.logValidationFailed(
                     "refresh",
                     "manual",
                     "User triggered pull-to-refresh"
                 )
-                // Call the SMS scan function from UI layer
                 onRefreshRequest()
-                // ✅ NEW: Check alerts after SMS scan
                 checkForBudgetAlerts()
                 refreshPersonalizedInsights()
+                refreshBudgetHealth()
             } catch (e: Exception) {
                 ExpenseLogger.logDatabaseError("refreshSms", e.message ?: "Unknown error")
             } finally {
@@ -218,18 +221,34 @@ class DashboardViewModel(
 
     private fun refreshBudgetHealth() {
         viewModelScope.launch {
-            val monthStart = getMonthStart()
-            val usages = budgetRepo.getBudgetUsageForMonth(monthStart, expenseDao)
+            _isBudgetHealthResolved.value = false
+            try {
+                val monthStart = getMonthStart()
+                val usages = budgetRepo.getBudgetUsageForMonth(monthStart, expenseDao)
 
-            val total = usages.size
-            val over = usages.count { it.percentageUsed >= 100 }
-            val within = total - over
+                val total = usages.size
+                val over = usages.count { it.percentageUsed >= 100 }
+                val within = total - over
 
-            _budgetHealth.value = BudgetHealthUi(
-                totalBudgets = total,
-                withinBudget = within,
-                overBudget = over
-            )
+                _budgetHealth.value = BudgetHealthUi(
+                    totalBudgets = total,
+                    withinBudget = within,
+                    overBudget = over
+                )
+            } finally {
+                _isBudgetHealthResolved.value = true
+            }
+        }
+    }
+
+    private fun refreshPersonalizedInsights() {
+        viewModelScope.launch {
+            _isInsightsResolved.value = false
+            try {
+                _personalizedInsights.value = personalizationRepo.computeInsightsForCurrentMonth()
+            } finally {
+                _isInsightsResolved.value = true
+            }
         }
     }
 
@@ -256,12 +275,10 @@ class DashboardViewModel(
     private var today80PercentAlertsShown = mutableSetOf<String>()
 
     private suspend fun checkForBudgetAlerts() {
-        // Clear daily cache
         if (isNewDay()) today80PercentAlertsShown.clear()
         val monthStart = getMonthStart()
         val usages = budgetRepo.getBudgetUsageForMonth(monthStart, expenseDao)
 
-        // Prioritize 100% alerts
         for (usage in usages) {
             if (usage.alertsEnabled && usage.percentageUsed >= 100) {
                 _activeAlert.value = BudgetAlert(
@@ -274,9 +291,12 @@ class DashboardViewModel(
             }
         }
 
-        // 80% → INLINE warnings (NO popup)
         val warnings = usages.filter {
-            it.alertsEnabled && it.percentageUsed >= 80 && it.percentageUsed < 100 && !is80WarningDismissed(it.category.name) && !hasRecentGoodBudgetAction(it.category.name)
+            it.alertsEnabled &&
+                    it.percentageUsed >= 80 &&
+                    it.percentageUsed < 100 &&
+                    !is80WarningDismissed(it.category.name) &&
+                    !hasRecentGoodBudgetAction(it.category.name)
         }.map {
             BudgetWarning(
                 category = it.category.name,
@@ -285,7 +305,8 @@ class DashboardViewModel(
                 budget = it.budgetAmount
             )
         }
-        _budgetWarnings.value = warnings  // INLINE
+
+        _budgetWarnings.value = warnings
         _activeAlert.value = null
         checkForPatternAlerts()
     }
@@ -303,9 +324,8 @@ class DashboardViewModel(
         val todayStart = getTodayTimestampStart()
         val todayEnd = getTodayTimestampEnd()
         val todayExpenses = expenseDao.getExpensesBetween(todayStart, todayEnd)
-            .filter { !isMerchantBlocked(it.merchant ?: "") } // ✅ EXISTS
+            .filter { !isMerchantBlocked(it.merchant ?: "") }
 
-        // 1. SAME MERCHANT 3x
         val merchantCounts = todayExpenses
             .filter { it.merchant != null }
             .groupBy { it.merchant!! }
@@ -330,7 +350,6 @@ class DashboardViewModel(
             return
         }
 
-        // 2. SAME CATEGORY 5x
         val categoryCounts = todayExpenses
             .filter { it.category != null }
             .groupBy { it.category!!.name }
@@ -347,7 +366,6 @@ class DashboardViewModel(
             return
         }
 
-        // 3. HIGH VALUE 3x (₹500+)
         val highValue = todayExpenses.filter { it.amount >= 500.0 }
         val highValueCounts = highValue
             .filter { it.merchant != null }
@@ -368,7 +386,6 @@ class DashboardViewModel(
             return
         }
     }
-
 
     private var lastCheckDay: String? = null
 
@@ -402,7 +419,7 @@ class DashboardViewModel(
             }
         }
         _activeAlert.value = null
-500    }
+    }
 
     private fun getTodayTimestampStart(): Long {
         val cal = Calendar.getInstance().apply {
@@ -427,9 +444,7 @@ class DashboardViewModel(
     private fun logNudgeEvent(type: String, category: String) {
         viewModelScope.launch {
             val cat = normalizeCategoryKey(category)
-
-            // Cooldown: don’t spam the same pattern nudge.
-            val cooldownMs = 6L * 60 * 60 * 1000 // 6 hours
+            val cooldownMs = 6L * 60 * 60 * 1000
             val since = System.currentTimeMillis() - cooldownMs
 
             val alreadyLogged = nudgeEventDao.countSameNudgeSince(type, cat, since) > 0
@@ -478,6 +493,7 @@ class DashboardViewModel(
         if (isNewDay()) {
             val prefs = context.getSharedPreferences("cobfa_alerts", Context.MODE_PRIVATE)
             val dismissed = prefs.getStringSet(getDismissedWarningsKey(), emptySet()) ?: emptySet()
+            dismissedWarningsToday.clear()
             dismissedWarningsToday.addAll(dismissed)
         }
         return dismissedWarningsToday.contains(category)
@@ -490,13 +506,11 @@ class DashboardViewModel(
         dismissed.add(category)
         prefs.edit().putStringSet(getDismissedWarningsKey(), dismissed).apply()
 
-        // ✅ FORCE RECOMPOSE - recheck warnings
         viewModelScope.launch {
             checkForBudgetAlerts()
         }
     }
 
-    // Temp merchant blocking (24h)
     private fun getBlockedMerchantsKey(): String = "blocked_${getTodayDate()}"
 
     fun isMerchantBlocked(merchant: String): Boolean {
@@ -513,16 +527,12 @@ class DashboardViewModel(
         logAlertAction("merchant_block_24h", merchant)
     }
 
-
-    // Quick pattern budget
     fun createPatternBudget(merchant: String, amount: Double) {
         viewModelScope.launch {
-            // Create budget for merchant as category
             logAlertAction("pattern_budget_set", "$merchant:₹$amount")
         }
     }
 
-    // Log any pattern action
     fun logPatternAction(action: String, details: String) {
         logAlertAction("pattern_$action", details)
     }
@@ -533,19 +543,13 @@ class DashboardViewModel(
             .filter { it.merchant == merchant }
 
         return if (recent.isNotEmpty()) {
-            recent.takeLast(3).map { it.amount }.average() * 0.8  // ✅ .map { it.amount }
+            recent.takeLast(3).map { it.amount }.average() * 0.8
         } else {
             300.0
         }
     }
 
     private val personalizationRepo = PersonalizedRepository(context, expenseDao, budgetRepo, nudgeEventDao)
-
-    private fun refreshPersonalizedInsights() {
-        viewModelScope.launch {
-            _personalizedInsights.value = personalizationRepo.computeInsightsForCurrentMonth()
-        }
-    }
 
     private fun normalizeAction(action: String?): String? =
         action?.trim()?.lowercase(Locale.ROOT)
@@ -627,7 +631,6 @@ class DashboardViewModel(
     private fun doneInsightsKey(): String = "done_insights"
 
     private fun getStringSetSafe(key: String): MutableSet<String> {
-        // Always copy because getStringSet can return a mutable reference tied to prefs. [web:391]
         val raw = insightPrefs().getStringSet(key, emptySet()) ?: emptySet()
         return raw.toMutableSet()
     }
@@ -649,11 +652,4 @@ class DashboardViewModel(
         putStringSet(dismissedInsightsKey(), dismissed)
         refreshPersonalizedInsights()
     }
-
-    private fun isInsightHidden(key: String): Boolean {
-        val dismissed = insightPrefs().getStringSet(dismissedInsightsKey(), emptySet()) ?: emptySet()
-        val done = insightPrefs().getStringSet(doneInsightsKey(), emptySet()) ?: emptySet()
-        return dismissed.contains(key) || done.contains(key)
-    }
-
 }

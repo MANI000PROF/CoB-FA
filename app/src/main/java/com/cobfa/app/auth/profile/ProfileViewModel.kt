@@ -1,18 +1,31 @@
 package com.cobfa.app.auth.profile
 
+import android.app.Application
+import android.net.Uri
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cobfa.app.data.remote.FirestoreService
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 
-class ProfileViewModel : ViewModel() {
+class ProfileViewModel(application: Application) : AndroidViewModel(application) {
 
     private val auth = FirebaseAuth.getInstance()
     private val rtdb = FirebaseDatabase.getInstance().reference
     private val firestore = FirestoreService()
+    private val httpClient = OkHttpClient()
 
     fun suggestUsername(fullName: String, uid: String): String {
         val base = fullName.trim()
@@ -42,6 +55,7 @@ class ProfileViewModel : ViewModel() {
         city: String,
         state: String,
         username: String,
+        photoUri: String?,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -58,7 +72,26 @@ class ProfileViewModel : ViewModel() {
         }
 
         viewModelScope.launch {
-            // 1) Claim username (set-once uniqueness)
+            // 0) Upload photo first
+            val photoUrl = if (!photoUri.isNullOrBlank()) {
+                val uploadResult = uploadProfilePhotoToCloudinary(photoUri)
+
+                if (uploadResult.isFailure) {
+                    val e = uploadResult.exceptionOrNull()
+                    Log.e("ProfileVM", "Photo upload failed", e)
+                    onError(e?.message ?: "Photo upload failed")
+                    return@launch
+                }
+
+                val uploadedUrl = uploadResult.getOrNull()
+                Log.d("ProfileVM", "uploaded photoUrl=$uploadedUrl")
+                uploadedUrl
+            } else {
+                Log.d("ProfileVM", "photoUri is null/blank, skipping upload")
+                null
+            }
+
+            // 1) Claim username
             val claim = firestore.claimUsername(handle)
             if (claim.isFailure) {
                 val e = claim.exceptionOrNull()
@@ -68,10 +101,10 @@ class ProfileViewModel : ViewModel() {
             }
             Log.d("ProfileVM", "claimUsername success for @$handle")
 
-            // 2) Save profile to Realtime DB
-            val profileData = mapOf(
+            // 2) Build profile map
+            val profileData = mutableMapOf<String, Any>(
                 "uid" to user.uid,
-                "phone" to user.phoneNumber,
+                "phone" to (user.phoneNumber ?: ""),
                 "name" to name,
                 "username" to handle,
                 "dob" to dob,
@@ -87,13 +120,17 @@ class ProfileViewModel : ViewModel() {
                 "createdAt" to System.currentTimeMillis()
             )
 
+            if (!photoUrl.isNullOrBlank()) {
+                profileData["photoUrl"] = photoUrl
+            }
+
+            // 3) Save to RTDB
             rtdb.child("users")
                 .child(user.uid)
                 .setValue(profileData)
                 .addOnSuccessListener {
                     Log.d("ProfileVM", "Profile saved successfully")
 
-                    // 3) Create public leaderboard doc (points start at 0)
                     viewModelScope.launch {
                         val res = firestore.upsertPublicUser(
                             username = handle,
@@ -104,7 +141,6 @@ class ProfileViewModel : ViewModel() {
                         )
                         if (res.isFailure) {
                             Log.e("ProfileVM", "upsertPublicUser failed", res.exceptionOrNull())
-                            // still allow onboarding to finish if RTDB profile saved:
                             onSuccess()
                         } else {
                             Log.d("ProfileVM", "upsertPublicUser success")
@@ -118,4 +154,60 @@ class ProfileViewModel : ViewModel() {
                 }
         }
     }
+
+    private suspend fun uploadProfilePhotoToCloudinary(photoUri: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val uri = Uri.parse(photoUri)
+
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: return@withContext Result.failure(Exception("Unable to read selected image"))
+
+                val tempFile = File.createTempFile("profile_", ".jpg", context.cacheDir)
+                inputStream.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val cloudName = "dfrve8uzg"
+                val uploadPreset = "cobfa_unsigned_preset"
+
+                val fileBody = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
+
+                val requestBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", tempFile.name, fileBody)
+                    .addFormDataPart("upload_preset", uploadPreset)
+                    .build()
+
+                val request = Request.Builder()
+                    .url("https://api.cloudinary.com/v1_1/$cloudName/image/upload")
+                    .post(requestBody)
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val body = response.body?.string().orEmpty()
+
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        Exception("Image upload failed: HTTP ${response.code} - $body")
+                    )
+                }
+
+                val json = JSONObject(body)
+                val secureUrl = json.optString("secure_url")
+                Log.d("ProfileVM", "Parsed secure_url=$secureUrl")
+
+                if (secureUrl.isBlank()) {
+                    Result.failure(Exception("Cloudinary did not return secure_url"))
+                } else {
+                    Result.success(secureUrl)
+                }
+            } catch (e: Exception) {
+                Log.e("ProfileVM", "Cloudinary upload exception", e)
+                Result.failure(e)
+            }
+        }
 }

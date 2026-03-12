@@ -13,8 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -51,6 +55,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
+    onOpenDrawer: () -> Unit,
     onOpenBudgets: () -> Unit,
     onOpenAnalytics: () -> Unit,
     onOpenExpenses: (merchant: String?) -> Unit,
@@ -77,6 +82,9 @@ fun DashboardScreen(
     val insights by vm.personalizedInsights.collectAsState()
     val warnings by vm.budgetWarnings.collectAsState()
     val budgetHealth by vm.budgetHealth.collectAsState()
+    val isInitialLoadDone by vm.isInitialLoadDone.collectAsState()
+    val isBudgetHealthResolved by vm.isBudgetHealthResolved.collectAsState()
+    val isInsightsResolved by vm.isInsightsResolved.collectAsState()
 
     var showManualDialog by remember { mutableStateOf(false) }
     var showPatternActions by remember { mutableStateOf(false) }
@@ -150,6 +158,14 @@ fun DashboardScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Dashboard") },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Open menu"
+                        )
+                    }
+                },
                 scrollBehavior = scrollBehavior
             )
         },
@@ -157,7 +173,7 @@ fun DashboardScreen(
     ) { padding ->
 
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
+            isRefreshing = isRefreshing && isInitialLoadDone,
             onRefresh = { vm.refreshSms() },
             modifier = Modifier
                 .fillMaxSize()
@@ -216,20 +232,20 @@ fun DashboardScreen(
 
                 item {
                     Crossfade(
-                        targetState = budgetHealth.totalBudgets > 0,
+                        targetState = isBudgetHealthResolved,
                         animationSpec = tween(400),
-                        label = "budget_transition"
-                    ) { hasBudgets ->
-                        if (hasBudgets) {
-                            BudgetHealthCard(
-                                health = budgetHealth,
-                                onViewBudgets = onOpenBudgets
-                            )
-                        } else {
+                        label = "budget_health_transition"
+                    ) { resolved ->
+                        if (!resolved) {
                             ShimmerCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(160.dp)
+                            )
+                        } else {
+                            BudgetHealthCard(
+                                health = budgetHealth,
+                                onViewBudgets = onOpenBudgets
                             )
                         }
                     }
@@ -259,11 +275,17 @@ fun DashboardScreen(
 
                 item {
                     Crossfade(
-                        targetState = insights.isNotEmpty(),
+                        targetState = isInsightsResolved,
                         animationSpec = tween(400),
                         label = "insights_transition"
-                    ) { hasInsights ->
-                        if (hasInsights) {
+                    ) { resolved ->
+                        if (!resolved) {
+                            ShimmerCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                            )
+                        } else if (insights.isNotEmpty()) {
                             InsightCard(
                                 insights = insights,
                                 onAction = { action ->
@@ -274,7 +296,6 @@ fun DashboardScreen(
                                                 .build()
                                                 .launchUrl(context, uri)
                                         }
-
                                         is InsightAction.SetBudget -> onOpenBudgets()
                                         is InsightAction.MarkDone -> vm.markInsightDone(action.insightKey)
                                         is InsightAction.NotUseful -> vm.dismissInsight(action.insightKey)
@@ -282,11 +303,17 @@ fun DashboardScreen(
                                 }
                             )
                         } else {
-                            ShimmerCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp)
-                            )
+                            SectionCard {
+                                Text(
+                                    "No insights yet",
+                                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium
+                                )
+                                Text(
+                                    "As you add expenses and budgets, personalized suggestions will appear here.",
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -297,7 +324,10 @@ fun DashboardScreen(
 
                 item {
                     SectionCard {
-                        Text("Quick actions", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Quick actions",
+                            style = androidx.compose.material3.MaterialTheme.typography.titleMedium
+                        )
                         ActionButtons(
                             onViewExpenses = { onOpenExpenses(null) },
                             onAddExpense = { showManualDialog = true },

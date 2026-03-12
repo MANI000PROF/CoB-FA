@@ -76,7 +76,7 @@ fun BudgetHealthCard(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     "${health.withinBudget}",
                     style = MaterialTheme.typography.headlineSmall,
@@ -92,7 +92,7 @@ fun BudgetHealthCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     "${health.totalBudgets}",
                     style = MaterialTheme.typography.headlineSmall,

@@ -5,20 +5,27 @@ import android.app.DatePickerDialog
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.cobfa.app.auth.link.AccountLinkViewModel
 import com.cobfa.app.auth.link.GoogleSignInHelper
 import com.cobfa.app.auth.session.DeviceId
@@ -53,11 +60,25 @@ fun ProfileSetupScreen(
     val activity = context as Activity
     val linkVm: AccountLinkViewModel = viewModel()
     val focusManager = LocalFocusManager.current
+    val profileVm: ProfileViewModel = viewModel()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
     var profileError by rememberSaveable { mutableStateOf<String?>(null) }
     val deviceId = remember { DeviceId.get(context) }
+
+    var googleLinked by rememberSaveable { mutableStateOf(false) }
+    var name by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var dob by rememberSaveable { mutableStateOf("") }
+    var age by rememberSaveable { mutableStateOf<Int?>(null) }
+    var ageError by remember { mutableStateOf(false) }
+    var city by rememberSaveable { mutableStateOf("") }
+    var state by rememberSaveable { mutableStateOf("") }
+    var username by rememberSaveable { mutableStateOf("") }
+    var autoTrackingEnabled by rememberSaveable { mutableStateOf(false) }
+
+    // Use remember, not rememberSaveable, for temporary picked URI
+    var profileImageUri by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(linkVm.errorMessage, profileError) {
         val msg = linkVm.errorMessage ?: profileError
@@ -67,60 +88,39 @@ fun ProfileSetupScreen(
         }
     }
 
-    val profileVm: ProfileViewModel = viewModel()
-
-    var googleLinked by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(""))
-    }
-    var dob by rememberSaveable { mutableStateOf("") }
-
-    var age by rememberSaveable { mutableStateOf<Int?>(null) }
-    var ageError by remember { mutableStateOf(false) }
-
-    var city by rememberSaveable { mutableStateOf("") }
-    var state by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-
-    var autoTrackingEnabled by rememberSaveable { mutableStateOf(false) }
-
-    // Launcher for Google Sign-In
     val googleLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            Log.d("ProfileSetup", "Activity result received: ${result.resultCode}")
-
             GoogleSignInHelper.handleResult(
                 result.data,
                 onSuccess = { token ->
-                    Log.d("ProfileSetup", "Google ID token received (length=${token.length})")
-
                     linkVm.linkGoogleAccount(token, deviceId) { displayName ->
-                        Log.d("ProfileSetup", "Firebase link success, name=$displayName")
                         googleLinked = true
                         val user = FirebaseAuth.getInstance().currentUser
-                        // Try multiple safe sources
-                        val resolvedName =
-                            when {
-                                !user?.displayName.isNullOrBlank() -> user?.displayName!!
-                                !user?.email.isNullOrBlank() -> user?.email!!.substringBefore("@")
-                                else -> ""
-                            }
-
+                        val resolvedName = when {
+                            !user?.displayName.isNullOrBlank() -> user?.displayName!!
+                            !user?.email.isNullOrBlank() -> user?.email!!.substringBefore("@")
+                            else -> ""
+                        }
                         name = TextFieldValue(resolvedName)
                         val uid = user?.uid
                         if (!uid.isNullOrBlank()) {
                             username = profileVm.suggestUsername(resolvedName, uid)
                         }
+                        Log.d("ProfileSetup", "Google linked successfully. username=$username")
                     }
                 },
                 onError = { error ->
-                    Log.e("ProfileSetup", "Google sign-in error: $error")
+                    Log.e("ProfileSetup", "Google link failed: $error")
                     linkVm.errorMessage = error
                 }
             )
         }
 
-    // Date picker
+    val imagePickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            profileImageUri = uri?.toString()
+        }
+
     fun openDatePicker() {
         val cal = Calendar.getInstance()
         DatePickerDialog(
@@ -128,11 +128,8 @@ fun ProfileSetupScreen(
             { _, year, month, day ->
                 dob = "%04d-%02d-%02d".format(year, month + 1, day)
 
-                // Calculate age
                 val today = Calendar.getInstance()
-                val birth = Calendar.getInstance().apply {
-                    set(year, month, day)
-                }
+                val birth = Calendar.getInstance().apply { set(year, month, day) }
 
                 var calculatedAge = today.get(Calendar.YEAR) - birth.get(Calendar.YEAR)
                 if (today.get(Calendar.DAY_OF_YEAR) < birth.get(Calendar.DAY_OF_YEAR)) {
@@ -148,9 +145,26 @@ fun ProfileSetupScreen(
         ).show()
     }
 
+    val citySuggestions = remember(state) { CITIES_BY_STATE[state].orEmpty() }
+    var cityExpanded by rememberSaveable { mutableStateOf(false) }
+    val filteredCities = remember(city, citySuggestions) {
+        if (city.isBlank()) citySuggestions
+        else citySuggestions.filter { it.contains(city.trim(), ignoreCase = true) }
+    }
+    var stateExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val canContinue = googleLinked &&
+            name.text.isNotBlank() &&
+            dob.isNotBlank() &&
+            age != null &&
+            age!! >= 18 &&
+            city.isNotBlank() &&
+            state.isNotBlank() &&
+            username.isNotBlank()
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Complete profile") })
+            TopAppBar(title = { Text("Set up profile") })
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
@@ -159,217 +173,305 @@ fun ProfileSetupScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // (keep existing content inside)
-            Text(
-                text = "Complete your profile",
-                style = MaterialTheme.typography.headlineSmall
-            )
-
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Privacy: Insights run on-device. Firebase is used for backup sync. Raw SMS bodies are never uploaded.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            // Google Linking (MANDATORY)
-            Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !googleLinked,
-                onClick = {
-                    val client = GoogleSignInHelper.getClient(activity)
-                    client.signOut().addOnCompleteListener {
-                        googleLauncher.launch(client.signInIntent)
-                    }
-                }
-            ) {
-                Text(if (googleLinked) "Google Account Linked" else "Continue with Google")
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // Name
-            OutlinedTextField(
-                value = name,
-                onValueChange = { newValue ->
-                    name = newValue
-                },
-                label = { Text("Full Name") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = googleLinked,
-                singleLine = true
-            )
-
-            // User Name
-            Spacer(Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = username,
-                onValueChange = { raw ->
-                    username = raw
-                        .lowercase()
-                        .replace(" ", "_")
-                        .filter { it.isLetterOrDigit() || it == '_' }
-                        .take(15)
-                },
-                label = { Text("Username (unique, set once)") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = googleLinked,
-                singleLine = true,
-                supportingText = { Text("3–15 chars: a-z, 0-9, underscore") }
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            // DOB
-            OutlinedTextField(
-                value = dob,
-                onValueChange = {},
-                label = { Text("Date of Birth") },
-                modifier = Modifier.fillMaxWidth(),
-                readOnly = true,
-                enabled = googleLinked,
-                trailingIcon = {
-                    IconButton(onClick = { openDatePicker() }) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarToday,
-                            contentDescription = "Select DOB"
-                        )
-                    }
-                }
-            )
-
-            //Age
-            age?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Age: $it years",
-                    color = if (ageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
-            }
-            if (ageError) {
-                Text(
-                    text = "You must be at least 18 years old to use this app",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            Spacer(Modifier.height(32.dp))
-
-            // City (searchable dropdown over a small suggestion list)
-            val citySuggestions = remember(state) { CITIES_BY_STATE[state].orEmpty() }
-            var cityExpanded by rememberSaveable { mutableStateOf(false) }
-            val filteredCities = remember(city, citySuggestions) {
-                if (city.isBlank()) citySuggestions
-                else citySuggestions.filter { it.contains(city.trim(), ignoreCase = true) }
-            }
-            var stateExpanded by rememberSaveable { mutableStateOf(false) }
-
-            // State (fixed dropdown)
-            ExposedDropdownMenuBox(
-                expanded = stateExpanded,
-                onExpandedChange = { if (googleLinked) stateExpanded = !stateExpanded }
-            ) {
-                OutlinedTextField(
-                    value = state,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("State") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    enabled = googleLinked,
-                    singleLine = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded) }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = stateExpanded,
-                    onDismissRequest = { stateExpanded = false }
-                ) {
-                    INDIA_STATES_UTS.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option) },
-                            onClick = {
-                                state = option
-                                city = ""
-                                stateExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // City (fixed dropdown)
-            ExposedDropdownMenuBox(
-                expanded = cityExpanded && filteredCities.isNotEmpty(),
-                onExpandedChange = {
-                    if (googleLinked && state.isNotBlank()) cityExpanded = !cityExpanded
-                }
-            ) {
-                OutlinedTextField(
-                    value = city,
-                    onValueChange = {
-                        city = it
-                        if (googleLinked && state.isNotBlank()) cityExpanded = true
-                    },
-                    label = { Text("City (residential)") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(),
-                    enabled = googleLinked && state.isNotBlank(),
-                    singleLine = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cityExpanded) }
-                )
-
-                ExposedDropdownMenu(
-                    expanded = cityExpanded && filteredCities.isNotEmpty(),
-                    onDismissRequest = { cityExpanded = false }
-                ) {
-                    filteredCities.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option) },
-                            onClick = {
-                                city = option
-                                cityExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
-                ),
-                modifier = Modifier.fillMaxWidth()
+                )
             ) {
-                Column(Modifier.padding(16.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Expense tracking (optional)",
-                        style = MaterialTheme.typography.titleMedium
+                        text = "Complete your profile",
+                        style = MaterialTheme.typography.headlineSmall
                     )
-                    Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "If enabled, CoBFA will scan your SMS inbox only when you open the app or pull to refresh. No background interception.",
+                        text = "Set up your identity once so CoBFA can personalize insights, leaderboard, and account experience.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Privacy: Insights run on-device. Firebase is used for backup sync. Raw SMS bodies are never uploaded.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(12.dp))
+                }
+            }
+
+            ElevatedCard {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier
+                            .size(104.dp)
+                            .clickable(enabled = googleLinked) {
+                                Log.d("ProfileSetup", "Avatar tapped. googleLinked=$googleLinked")
+                                imagePickerLauncher.launch("image/*")
+                            }
+                    ) {
+                        if (!profileImageUri.isNullOrBlank()) {
+                            AsyncImage(
+                                model = profileImageUri,
+                                contentDescription = "Profile photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "Add profile photo",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(42.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Profile photo",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    TextButton(
+                        onClick = {
+                            imagePickerLauncher.launch("image/*")
+                        },
+                        enabled = googleLinked
+                    ) {
+                        Text(if (profileImageUri.isNullOrBlank()) "Add photo" else "Change photo")
+                    }
+
+                    if (!profileImageUri.isNullOrBlank()) {
+                        Text(
+                            text = "Photo selected",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            "Optional now, customizable later",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            ElevatedCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Account link", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Link Google to continue and prefill your profile.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !googleLinked,
+                        onClick = {
+                            val client = GoogleSignInHelper.getClient(activity)
+                            client.signOut().addOnCompleteListener {
+                                googleLauncher.launch(client.signInIntent)
+                            }
+                        }
+                    ) {
+                        Text(if (googleLinked) "Google Account Linked" else "Continue with Google")
+                    }
+                }
+            }
+
+            ElevatedCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Identity", style = MaterialTheme.typography.titleMedium)
+
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Full name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = googleLinked,
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { raw ->
+                            username = raw
+                                .lowercase()
+                                .replace(" ", "_")
+                                .filter { it.isLetterOrDigit() || it == '_' }
+                                .take(15)
+                        },
+                        label = { Text("Username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = googleLinked,
+                        singleLine = true,
+                        supportingText = { Text("3–15 chars: a-z, 0-9, underscore") }
+                    )
+
+                    OutlinedTextField(
+                        value = dob,
+                        onValueChange = {},
+                        label = { Text("Date of birth") },
+                        modifier = Modifier.fillMaxWidth(),
+                        readOnly = true,
+                        enabled = googleLinked,
+                        trailingIcon = {
+                            IconButton(onClick = { openDatePicker() }) {
+                                Icon(Icons.Default.CalendarToday, contentDescription = "Select DOB")
+                            }
+                        }
+                    )
+
+                    age?.let {
+                        Text(
+                            text = "Age: $it years",
+                            color = if (ageError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    if (ageError) {
+                        Text(
+                            text = "You must be at least 18 years old to use this app.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+
+            ElevatedCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Location", style = MaterialTheme.typography.titleMedium)
+
+                    ExposedDropdownMenuBox(
+                        expanded = stateExpanded,
+                        onExpandedChange = { if (googleLinked) stateExpanded = !stateExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = state,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("State") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            enabled = googleLinked,
+                            singleLine = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded)
+                            }
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = stateExpanded,
+                            onDismissRequest = { stateExpanded = false }
+                        ) {
+                            INDIA_STATES_UTS.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option) },
+                                    onClick = {
+                                        state = option
+                                        city = ""
+                                        stateExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = cityExpanded && filteredCities.isNotEmpty(),
+                        onExpandedChange = {
+                            if (googleLinked && state.isNotBlank()) cityExpanded = !cityExpanded
+                        }
+                    ) {
+                        OutlinedTextField(
+                            value = city,
+                            onValueChange = {
+                                city = it
+                                if (googleLinked && state.isNotBlank()) cityExpanded = true
+                            },
+                            label = { Text("City") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            enabled = googleLinked && state.isNotBlank(),
+                            singleLine = true,
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = cityExpanded)
+                            }
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = cityExpanded && filteredCities.isNotEmpty(),
+                            onDismissRequest = { cityExpanded = false }
+                        ) {
+                            filteredCities.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option) },
+                                    onClick = {
+                                        city = option
+                                        cityExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Expense tracking", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "If enabled, CoBFA scans your SMS inbox only when you open the app or pull to refresh. No background interception.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Enable auto-tracking")
+                        Column {
+                            Text("Enable auto-tracking")
+                            Text(
+                                "You can change this later in settings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Switch(
                             checked = autoTrackingEnabled,
                             enabled = googleLinked,
@@ -379,14 +481,11 @@ fun ProfileSetupScreen(
                 }
             }
 
-            // Continue
             Button(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = googleLinked &&
-                        name.text.isNotBlank() &&
-                        dob.isNotBlank() &&
-                        age != null &&
-                        age!! >= 18 && city.isNotBlank() && state.isNotBlank() && username.isNotBlank(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                enabled = canContinue,
                 onClick = {
                     focusManager.clearFocus(force = true)
 
@@ -404,12 +503,9 @@ fun ProfileSetupScreen(
                         city = city,
                         state = state,
                         username = username,
-                        onSuccess = {
-                            onProfileCompleted()
-                        },
-                        onError = { error ->
-                            profileError = error
-                        }
+                        photoUri = profileImageUri,
+                        onSuccess = { onProfileCompleted() },
+                        onError = { error -> profileError = error }
                     )
                 }
             ) {
@@ -417,14 +513,14 @@ fun ProfileSetupScreen(
             }
 
             linkVm.errorMessage?.let {
-                Spacer(Modifier.height(16.dp))
                 Text(it, color = MaterialTheme.colorScheme.error)
             }
 
             profileError?.let {
-                Spacer(Modifier.height(16.dp))
                 Text(it, color = MaterialTheme.colorScheme.error)
             }
+
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
