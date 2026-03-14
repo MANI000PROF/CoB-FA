@@ -69,9 +69,9 @@ import coil.compose.AsyncImage
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
-    onOpenSmsPermission: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onOpenSmsPermission: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val profileScreenVM: ProfileScreenViewModel = viewModel()
     val uiState by profileScreenVM.uiState.collectAsStateWithLifecycle()

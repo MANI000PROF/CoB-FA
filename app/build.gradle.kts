@@ -85,10 +85,10 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 
     implementation(libs.mpandroidchart)
+
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.browser:browser:1.8.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-
+    implementation("com.airbnb.android:lottie-compose:6.4.0")
 }

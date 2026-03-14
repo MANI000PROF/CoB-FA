@@ -163,7 +163,20 @@ fun AppNavigation() {
 
         composable("profile_view") {
             ProfileScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSmsPermission = {
+                    navController.navigate("sms_permission")
+                },
+                onOpenSettings = {
+                    navController.navigate("settings")
+                },
+                onLogout = {
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("auth") {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
             )
         }
 
