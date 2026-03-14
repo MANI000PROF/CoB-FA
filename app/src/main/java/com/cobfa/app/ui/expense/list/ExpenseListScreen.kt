@@ -1,30 +1,105 @@
 package com.cobfa.app.ui.expense.list
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.PopupProperties
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
+import com.cobfa.app.R
 import com.cobfa.app.data.local.entity.ExpenseEntity
 import com.cobfa.app.domain.model.ExpenseCategory
 import com.cobfa.app.domain.model.ExpenseType
 import com.cobfa.app.ui.expense.category.CategoryPickerBottomSheet
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+private const val MAX_FILTER_AMOUNT = 50000f
+
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
 fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val expenses by vm.expenses.collectAsState()
@@ -32,195 +107,246 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val categoryFilter by vm.categoryFilter.collectAsState()
     val onlyUncat by vm.onlyUncategorized.collectAsState()
     val sortMode by vm.sortMode.collectAsState()
-
-    var categoryMenuExpanded by remember { mutableStateOf(false) }
     val merchantFilter by vm.merchantFilter.collectAsState()
-    val hasActiveFilters =
-        searchQuery.isNotBlank() || categoryFilter != null || merchantFilter != null ||
-                onlyUncat || sortMode != ExpenseListViewModel.SortMode.NEWEST
+    val excludedMode by vm.excludedMode.collectAsState()
+    val amountRange by vm.amountRange.collectAsState()
 
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var previousIndex by remember { mutableIntStateOf(0) }
+    var previousScrollOffset by remember { mutableIntStateOf(0) }
+    var showSearchHeader by remember { mutableStateOf(true) }
+
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        val currentIndex = listState.firstVisibleItemIndex
+        val currentOffset = listState.firstVisibleItemScrollOffset
+
+        val isScrollingUp = currentIndex < previousIndex ||
+                (currentIndex == previousIndex && currentOffset < previousScrollOffset)
+
+        val isAtTop = currentIndex == 0 && currentOffset <= 10
+
+        showSearchHeader = isAtTop || isScrollingUp
+
+        previousIndex = currentIndex
+        previousScrollOffset = currentOffset
+    }
+
+    var showFilterSheet by remember { mutableStateOf(false) }
     var selectedExpense by remember { mutableStateOf<ExpenseEntity?>(null) }
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showEditSheet by remember { mutableStateOf(false) }
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val noExpensesAtAll = expenses.isEmpty() &&
+            searchQuery.isBlank() &&
+            categoryFilter == null &&
+            merchantFilter == null &&
+            !onlyUncat &&
+            excludedMode == ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY &&
+            sortMode == ExpenseListViewModel.SortMode.NEWEST &&
+            amountRange.start == 0f &&
+            amountRange.endInclusive == MAX_FILTER_AMOUNT
+
+    val hasActiveFilters =
+        searchQuery.isNotBlank() ||
+                categoryFilter != null ||
+                merchantFilter != null ||
+                onlyUncat ||
+                excludedMode != ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY ||
+                sortMode != ExpenseListViewModel.SortMode.NEWEST ||
+                amountRange.start > 0f ||
+                amountRange.endInclusive < MAX_FILTER_AMOUNT
+
+    val activeFilterCount = buildList {
+        if (searchQuery.isNotBlank()) add("search")
+        if (categoryFilter != null) add("category")
+        if (merchantFilter != null) add("merchant")
+        if (onlyUncat) add("uncategorized")
+        if (excludedMode != ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY) add("excluded")
+        if (sortMode != ExpenseListViewModel.SortMode.NEWEST) add("sort")
+        if (amountRange.start > 0f || amountRange.endInclusive < MAX_FILTER_AMOUNT) add("amount")
+    }.size
+
+    val dayFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val grouped = remember(expenses) { expenses.groupBy { dayFmt.format(Date(it.timestamp)) } }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Expenses") },
-                scrollBehavior = scrollBehavior
+            TopAppBar(
+                title = { Text("Expenses") }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .navigationBarsPadding()
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = vm::updateSearchQuery,
-                label = { Text("Search merchant or category") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                trailingIcon = {
-                    when {
-                        hasActiveFilters -> {
-                            IconButton(onClick = { vm.clearFilters() }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear filters")
-                            }
-                        }
-                        searchQuery.isNotBlank() -> {
-                            IconButton(onClick = { vm.updateSearchQuery("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                            }
-                        }
-                    }
-                }
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                merchantFilter?.let { m ->
-                    FilterChip(
-                        selected = true,
-                        onClick = { vm.updateMerchantFilter(null) },
-                        label = { Text(m, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Icon(Icons.Default.Clear, contentDescription = "Clear merchant filter") }
-                    )
-                }
-
-                FilterChip(
-                    selected = categoryFilter == null,
-                    onClick = { vm.updateCategoryFilter(null) },
-                    label = { Text("All") }
-                )
-
-                Box {
-                    FilterChip(
-                        selected = categoryFilter != null,
-                        onClick = { categoryMenuExpanded = true },
-                        label = {
-                            Text(
-                                categoryFilter?.name
-                                    ?.replace("_", " ")
-                                    ?.lowercase()
-                                    ?.replaceFirstChar { it.uppercase() }
-                                    ?: "Category"
-                            )
-                        }
-                    )
-
-                    DropdownMenu(
-                        expanded = categoryMenuExpanded,
-                        onDismissRequest = { categoryMenuExpanded = false },
-                        properties = PopupProperties(focusable = true)
+                item(key = "search_filters") {
+                    AnimatedVisibility(
+                        visible = showSearchHeader,
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("All categories") },
-                            onClick = {
-                                vm.updateCategoryFilter(null)
-                                categoryMenuExpanded = false
-                            }
-                        )
-                        ExpenseCategory.entries.forEach { cat ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        cat.name.replace("_", " ")
-                                            .lowercase()
-                                            .replaceFirstChar { it.uppercase() }
-                                    )
-                                },
-                                onClick = {
-                                    vm.updateCategoryFilter(cat)
-                                    categoryMenuExpanded = false
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = vm::updateSearchQuery,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("Search expenses") },
+                                    placeholder = { Text("Merchant or category") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Search, contentDescription = null)
+                                    },
+                                    trailingIcon = {
+                                        if (searchQuery.isNotBlank()) {
+                                            IconButton(onClick = { vm.updateSearchQuery("") }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Clear,
+                                                    contentDescription = "Clear search"
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = { showFilterSheet = true },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FilterList,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.size(8.dp))
+                                        Text(
+                                            if (activeFilterCount > 0) "Filters ($activeFilterCount)" else "Filters"
+                                        )
+                                    }
+
+                                    if (hasActiveFilters) {
+                                        TextButton(onClick = { vm.clearFilters() }) {
+                                            Text("Clear all")
+                                        }
+                                    }
                                 }
-                            )
+
+                                if (hasActiveFilters) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        merchantFilter?.let { ActiveFilterChip(text = it) }
+                                        categoryFilter?.let {
+                                            ActiveFilterChip(
+                                                text = it.name.replace("_", " ")
+                                                    .lowercase()
+                                                    .replaceFirstChar { c -> c.uppercase() }
+                                            )
+                                        }
+                                        if (onlyUncat) ActiveFilterChip("Uncategorized")
+                                        if (sortMode == ExpenseListViewModel.SortMode.OLDEST) {
+                                            ActiveFilterChip("Oldest first")
+                                        }
+                                        when (excludedMode) {
+                                            ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED ->
+                                                ActiveFilterChip("Include excluded")
+                                            ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY ->
+                                                ActiveFilterChip("Excluded only")
+                                            else -> Unit
+                                        }
+                                        if (amountRange.start > 0f || amountRange.endInclusive < MAX_FILTER_AMOUNT) {
+                                            ActiveFilterChip(
+                                                text = "₹${amountRange.start.toInt()} - ₹${amountRange.endInclusive.toInt()}"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                FilterChip(
-                    selected = onlyUncat,
-                    onClick = { vm.setOnlyUncategorized(!onlyUncat) },
-                    label = { Text("Uncategorized") }
-                )
-
-                FilterChip(
-                    selected = sortMode == ExpenseListViewModel.SortMode.NEWEST,
-                    onClick = { vm.toggleSort() },
-                    label = { Text(if (sortMode == ExpenseListViewModel.SortMode.NEWEST) "Newest" else "Oldest") }
-                )
-
-                val excludedMode by vm.excludedMode.collectAsState()
-
-                FilterChip(
-                    selected = excludedMode == ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED,
-                    onClick = {
-                        vm.setExcludedMode(
-                            if (excludedMode == ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED)
-                                ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY
-                            else ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED
-                        )
-                    },
-                    label = { Text("Include excluded") }
-                )
-
-                FilterChip(
-                    selected = excludedMode == ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY,
-                    onClick = {
-                        vm.setExcludedMode(
-                            if (excludedMode == ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY)
-                                ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY
-                            else ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY
-                        )
-                    },
-                    label = { Text("Excluded only") }
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            if (expenses.isEmpty()) {
-                if (hasActiveFilters) {
-                    Text("No results for your filters.", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { vm.clearFilters() }) { Text("Clear filters") }
-                } else {
-                    Text("No expenses recorded yet.", style = MaterialTheme.typography.bodyMedium)
-                }
-            } else {
-                val dayFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-                val grouped = remember(expenses) { expenses.groupBy { dayFmt.format(Date(it.timestamp)) } }
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 8.dp)
-                ) {
-                    grouped.forEach { (day, itemsForDay) ->
-                        item(key = "day:$day") {
-                            Text(
-                                text = day,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
-                            )
+                if (expenses.isEmpty()) {
+                    item(key = "empty_state") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (noExpensesAtAll) {
+                                ExpenseEmptyState(
+                                    rawRes = R.raw.expenses_empty,
+                                    title = "No expenses yet",
+                                    subtitle = "Your recorded transactions will appear here once expenses are added."
+                                )
+                            } else {
+                                ExpenseEmptyState(
+                                    rawRes = R.raw.expenses_search_empty,
+                                    title = "No matching expenses",
+                                    subtitle = "Try adjusting search or filters to find what you need.",
+                                    action = {
+                                        TextButton(onClick = { vm.clearFilters() }) {
+                                            Text("Clear filters")
+                                        }
+                                    }
+                                )
+                            }
                         }
+                    }
+                } else {
+                    grouped.forEach { (day, itemsForDay) ->
+                        stickyHeader(key = "day:$day") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.background
+                            ) {
+                                Text(
+                                    text = day,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp, bottom = 2.dp)
+                                )
+                            }
+                        }
+
                         items(itemsForDay, key = { it.id }) { expense ->
-                            ExpenseRow(
+                            ModernExpenseRow(
                                 expense = expense,
                                 onClick = {
                                     selectedExpense = expense
@@ -230,11 +356,46 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                         }
                     }
                 }
+
+                item(key = "bottom_spacer") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            if (expenses.isNotEmpty()) {
+                AnimatedVisibility(
+                    visible = listState.isScrollInProgress,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp, top = 12.dp, bottom = 12.dp)
+                ) {
+                    ExpenseListScrollbar(
+                        listState = listState
+                    )
+                }
             }
         }
     }
 
-    // Details sheet
+    if (showFilterSheet) {
+        ExpenseFilterSheet(
+            categoryFilter = categoryFilter,
+            onlyUncat = onlyUncat,
+            sortMode = sortMode,
+            excludedMode = excludedMode,
+            amountRange = amountRange,
+            onDismiss = { showFilterSheet = false },
+            onCategorySelected = vm::updateCategoryFilter,
+            onOnlyUncatChanged = vm::setOnlyUncategorized,
+            onToggleSort = vm::toggleSort,
+            onExcludedModeSelected = vm::setExcludedMode,
+            onAmountRangeChanged = vm::setAmountRange,
+            onClearAll = vm::clearFilters
+        )
+    }
+
     if (showDetailsSheet && selectedExpense != null) {
         ExpenseDetailsBottomSheet(
             expense = selectedExpense!!,
@@ -260,7 +421,6 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
         )
     }
 
-    // Category picker
     if (showCategoryPicker && selectedExpense != null) {
         CategoryPickerBottomSheet(
             onCategorySelected = { cat ->
@@ -272,7 +432,6 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
         )
     }
 
-    // Edit sheet (merchant + amount)
     if (showEditSheet && selectedExpense != null) {
         EditExpenseBottomSheet(
             expense = selectedExpense!!,
@@ -283,7 +442,7 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                     id = e.id,
                     merchant = newMerchant,
                     amount = newAmount,
-                    timestamp = e.timestamp // unchanged in this patch
+                    timestamp = e.timestamp
                 )
                 showEditSheet = false
                 showDetailsSheet = false
@@ -292,9 +451,203 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
     }
 }
 
+@Composable
+private fun ActiveFilterChip(text: String) {
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = { Text(text, style = MaterialTheme.typography.labelSmall) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpenseFilterSheet(
+    categoryFilter: ExpenseCategory?,
+    onlyUncat: Boolean,
+    sortMode: ExpenseListViewModel.SortMode,
+    excludedMode: ExpenseListViewModel.ExcludedMode,
+    amountRange: ClosedFloatingPointRange<Float>,
+    onDismiss: () -> Unit,
+    onCategorySelected: (ExpenseCategory?) -> Unit,
+    onOnlyUncatChanged: (Boolean) -> Unit,
+    onToggleSort: () -> Unit,
+    onExcludedModeSelected: (ExpenseListViewModel.ExcludedMode) -> Unit,
+    onAmountRangeChanged: (ClosedFloatingPointRange<Float>) -> Unit,
+    onClearAll: () -> Unit
+) {
+    var categoryMenuExpanded by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Filters", style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = onClearAll) {
+                    Text("Reset")
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Category", style = MaterialTheme.typography.titleSmall)
+
+                Box {
+                    OutlinedButton(
+                        onClick = { categoryMenuExpanded = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            categoryFilter?.name?.replace("_", " ")
+                                ?.lowercase()
+                                ?.replaceFirstChar { it.uppercase() }
+                                ?: "All categories"
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = categoryMenuExpanded,
+                        onDismissRequest = { categoryMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("All categories") },
+                            onClick = {
+                                onCategorySelected(null)
+                                categoryMenuExpanded = false
+                            }
+                        )
+                        ExpenseCategory.entries.forEach { cat ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        cat.name.replace("_", " ")
+                                            .lowercase()
+                                            .replaceFirstChar { it.uppercase() }
+                                    )
+                                },
+                                onClick = {
+                                    onCategorySelected(cat)
+                                    categoryMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Amount range", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "₹${amountRange.start.toInt()} - ₹${amountRange.endInclusive.toInt()}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                RangeSlider(
+                    value = amountRange,
+                    onValueChange = onAmountRangeChanged,
+                    valueRange = 0f..MAX_FILTER_AMOUNT
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Only uncategorized", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Show only transactions without a category",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = onlyUncat,
+                    onCheckedChange = onOnlyUncatChanged
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Sort", style = MaterialTheme.typography.titleSmall)
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        onClick = {
+                            if (sortMode != ExpenseListViewModel.SortMode.NEWEST) onToggleSort()
+                        },
+                        selected = sortMode == ExpenseListViewModel.SortMode.NEWEST
+                    ) {
+                        Text("Newest")
+                    }
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        onClick = {
+                            if (sortMode != ExpenseListViewModel.SortMode.OLDEST) onToggleSort()
+                        },
+                        selected = sortMode == ExpenseListViewModel.SortMode.OLDEST
+                    ) {
+                        Text("Oldest")
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Excluded expenses", style = MaterialTheme.typography.titleSmall)
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                        onClick = {
+                            onExcludedModeSelected(ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY)
+                        },
+                        selected = excludedMode == ExpenseListViewModel.ExcludedMode.ACTIVE_ONLY
+                    ) {
+                        Text("Active")
+                    }
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                        onClick = {
+                            onExcludedModeSelected(ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED)
+                        },
+                        selected = excludedMode == ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED
+                    ) {
+                        Text("Include")
+                    }
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                        onClick = {
+                            onExcludedModeSelected(ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY)
+                        },
+                        selected = excludedMode == ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY
+                    ) {
+                        Text("Excluded")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ExpenseRow(
+private fun ModernExpenseRow(
     expense: ExpenseEntity,
     onClick: () -> Unit
 ) {
@@ -302,19 +655,23 @@ private fun ExpenseRow(
     val isCredit = expense.type == ExpenseType.CREDIT
     val amountColor = if (isCredit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
     val typeLabel = if (isCredit) "Credit" else "Debit"
-
     val categoryLabel = (expense.category?.name ?: "Uncategorized").replace("_", " ")
-    val srcLabel = expense.source?.toString()?.uppercase(Locale.getDefault()) // adjust if non-null
+    val srcLabel = expense.source?.toString()?.uppercase(Locale.getDefault())
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.extraLarge,
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         ListItem(
             headlineContent = {
                 Text(
-                    text = expense.merchant ?: "Unknown",
+                    text = expense.merchant ?: "Unknown merchant",
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -322,7 +679,6 @@ private fun ExpenseRow(
             },
             supportingContent = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Category as subtle text line (keeps the chip row cleaner)
                     Text(
                         text = categoryLabel,
                         style = MaterialTheme.typography.bodySmall,
@@ -331,14 +687,13 @@ private fun ExpenseRow(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Tags: wrap nicely, don’t push trailing amount around
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (expense.editedAt != null) SmallBadge("Edited")
                         if (!srcLabel.isNullOrBlank()) SmallBadge(srcLabel)
-                        SmallBadge(typeLabel) // you said you want type visible too
+                        SmallBadge(typeLabel)
                     }
 
                     Text(
@@ -349,13 +704,11 @@ private fun ExpenseRow(
                 }
             },
             trailingContent = {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "₹${String.format("%.0f", expense.amount)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = amountColor
-                    )
-                }
+                Text(
+                    text = "₹${String.format("%.0f", expense.amount)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = amountColor
+                )
             }
         )
     }
@@ -372,6 +725,99 @@ private fun SmallBadge(text: String) {
             disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     )
+}
+
+@Composable
+private fun ExpenseEmptyState(
+    rawRes: Int,
+    title: String,
+    subtitle: String,
+    action: @Composable (() -> Unit)? = null
+) {
+    val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(rawRes))
+    val progress by animateLottieCompositionAsState(
+        composition = composition,
+        iterations = LottieConstants.IterateForever,
+        isPlaying = true
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        LottieAnimation(
+            composition = composition,
+            progress = { progress },
+            modifier = Modifier.size(220.dp)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        action?.let {
+            Spacer(modifier = Modifier.height(10.dp))
+            it()
+        }
+    }
+}
+
+@Composable
+private fun ExpenseListScrollbar(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier
+) {
+    val layoutInfo = listState.layoutInfo
+    val totalItemsCount = layoutInfo.totalItemsCount
+    val visibleItemsInfo = layoutInfo.visibleItemsInfo
+
+    if (totalItemsCount == 0 || visibleItemsInfo.isEmpty()) return
+
+    val firstVisible = visibleItemsInfo.first().index.toFloat()
+    val visibleCount = visibleItemsInfo.size.toFloat()
+    val totalCount = totalItemsCount.toFloat()
+
+    val thumbHeightFraction = (visibleCount / totalCount).coerceIn(0.08f, 0.35f)
+    val thumbOffsetFraction = (firstVisible / totalCount).coerceIn(0f, 1f - thumbHeightFraction)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(12.dp)
+    ) {
+        val trackHeight = maxHeight
+        val thumbHeight = trackHeight * thumbHeightFraction
+        val freeSpace = trackHeight - thumbHeight
+        val thumbOffset = freeSpace * thumbOffsetFraction
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {}
+
+            Surface(
+                modifier = Modifier
+                    .padding(top = thumbOffset)
+                    .width(5.dp)
+                    .height(thumbHeight),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {}
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

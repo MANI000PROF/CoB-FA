@@ -24,6 +24,7 @@ class ExpenseListViewModel(
 ) : ViewModel() {
 
     enum class SortMode { NEWEST, OLDEST }
+    enum class ExcludedMode { ACTIVE_ONLY, INCLUDE_EXCLUDED, EXCLUDED_ONLY }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -40,12 +41,27 @@ class ExpenseListViewModel(
     private val _sortMode = MutableStateFlow(SortMode.NEWEST)
     val sortMode: StateFlow<SortMode> = _sortMode.asStateFlow()
 
-    enum class ExcludedMode { ACTIVE_ONLY, INCLUDE_EXCLUDED, EXCLUDED_ONLY }
-
     private val _excludedMode = MutableStateFlow(ExcludedMode.ACTIVE_ONLY)
-    val excludedMode = _excludedMode.asStateFlow()
+    val excludedMode: StateFlow<ExcludedMode> = _excludedMode.asStateFlow()
 
-    fun setExcludedMode(m: ExcludedMode) { _excludedMode.value = m }
+    private val _amountRange = MutableStateFlow(0f..50000f)
+    val amountRange: StateFlow<ClosedFloatingPointRange<Float>> = _amountRange.asStateFlow()
+
+    private val fullAmountRange = 0f..50000f
+
+    private val debouncedQuery = _searchQuery.debounce(250)
+
+    fun setExcludedMode(mode: ExcludedMode) {
+        _excludedMode.value = mode
+    }
+
+    fun setAmountRange(range: ClosedFloatingPointRange<Float>) {
+        _amountRange.value = range
+    }
+
+    fun resetAmountRange() {
+        _amountRange.value = fullAmountRange
+    }
 
     private fun baseFlow(mode: ExcludedMode, sort: SortMode): Flow<List<ExpenseEntity>> {
         return when (mode) {
@@ -63,31 +79,31 @@ class ExpenseListViewModel(
         }
     }
 
-    private val debouncedQuery = _searchQuery.debounce(250)
-
     val expenses: StateFlow<List<ExpenseEntity>> =
         combine(excludedMode, sortMode) { mode, sort -> mode to sort }
             .flatMapLatest { (mode, sort) -> baseFlow(mode, sort) }
             .combine(debouncedQuery) { list, query -> list to query }
             .combine(categoryFilter) { (list, query), category -> Triple(list, query, category) }
-            .combine(merchantFilter) { (list, query, category), merchant -> Quad(list, query, category, merchant) }
+            .combine(merchantFilter) { (list, query, category), merchant ->
+                Quad(list, query, category, merchant)
+            }
             .combine(onlyUncategorized) { q, onlyUncat ->
-                val list = q.list
-                val query = q.query
-                val category = q.category
-                val merchant = q.merchant
-
-                list.filter { expense ->
+                Quint(q.list, q.query, q.category, q.merchant, onlyUncat)
+            }
+            .combine(amountRange) { q, amountRange ->
+                q.list.filter { expense ->
                     val matchesSearch =
-                        query.isBlank() ||
-                                (expense.merchant?.contains(query, ignoreCase = true) == true) ||
-                                (expense.category?.name?.contains(query, ignoreCase = true) == true)
+                        q.query.isBlank() ||
+                                (expense.merchant?.contains(q.query, ignoreCase = true) == true) ||
+                                (expense.category?.name?.contains(q.query, ignoreCase = true) == true)
 
-                    val matchesCategory = category == null || expense.category == category
-                    val matchesMerchant = merchant == null || expense.merchant?.equals(merchant, ignoreCase = true) == true
-                    val matchesUncat = !onlyUncat || expense.category == null
+                    val matchesCategory = q.category == null || expense.category == q.category
+                    val matchesMerchant = q.merchant == null ||
+                            expense.merchant?.equals(q.merchant, ignoreCase = true) == true
+                    val matchesUncat = !q.onlyUncat || expense.category == null
+                    val matchesAmount = expense.amount.toFloat() in amountRange
 
-                    matchesSearch && matchesCategory && matchesMerchant && matchesUncat
+                    matchesSearch && matchesCategory && matchesMerchant && matchesUncat && matchesAmount
                 }
             }
             .stateIn(
@@ -101,6 +117,14 @@ class ExpenseListViewModel(
         val query: String,
         val category: ExpenseCategory?,
         val merchant: String?
+    )
+
+    private data class Quint(
+        val list: List<ExpenseEntity>,
+        val query: String,
+        val category: ExpenseCategory?,
+        val merchant: String?,
+        val onlyUncat: Boolean
     )
 
     fun updateSearchQuery(query: String) {
@@ -130,6 +154,8 @@ class ExpenseListViewModel(
         _merchantFilter.value = null
         _onlyUncategorized.value = false
         _sortMode.value = SortMode.NEWEST
+        _excludedMode.value = ExcludedMode.ACTIVE_ONLY
+        _amountRange.value = fullAmountRange
     }
 
     fun updateExpenseCategory(expenseId: Long, category: ExpenseCategory) {
@@ -141,6 +167,7 @@ class ExpenseListViewModel(
     fun softDeleteExpense(id: Long) {
         viewModelScope.launch { repository.softDeleteExpense(id) }
     }
+
     fun restoreExpense(id: Long) {
         viewModelScope.launch { repository.restoreExpense(id) }
     }
@@ -150,5 +177,4 @@ class ExpenseListViewModel(
             repository.editExpense(id, merchant, amount, timestamp)
         }
     }
-
 }
