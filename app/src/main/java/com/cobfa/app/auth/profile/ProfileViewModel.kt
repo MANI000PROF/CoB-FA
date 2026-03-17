@@ -11,6 +11,7 @@ import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -72,7 +73,6 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            // 0) Upload photo first
             val photoUrl = if (!photoUri.isNullOrBlank()) {
                 val uploadResult = uploadProfilePhotoToCloudinary(photoUri)
 
@@ -91,7 +91,6 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                 null
             }
 
-            // 1) Claim username
             val claim = firestore.claimUsername(handle)
             if (claim.isFailure) {
                 val e = claim.exceptionOrNull()
@@ -101,7 +100,6 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
             }
             Log.d("ProfileVM", "claimUsername success for @$handle")
 
-            // 2) Build profile map
             val profileData = mutableMapOf<String, Any>(
                 "uid" to user.uid,
                 "phone" to (user.phoneNumber ?: ""),
@@ -124,7 +122,6 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                 profileData["photoUrl"] = photoUrl
             }
 
-            // 3) Save to RTDB
             rtdb.child("users")
                 .child(user.uid)
                 .setValue(profileData)
@@ -158,56 +155,117 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun uploadProfilePhotoToCloudinary(photoUri: String): Result<String> =
         withContext(Dispatchers.IO) {
             try {
-                val context = getApplication<Application>()
                 val uri = Uri.parse(photoUri)
+                val scheme = uri.scheme?.lowercase()
 
-                val inputStream = context.contentResolver.openInputStream(uri)
-                    ?: return@withContext Result.failure(Exception("Unable to read selected image"))
+                Log.d("ProfileVM", "Uploading profile photo, uri=$photoUri, scheme=$scheme")
 
-                val tempFile = File.createTempFile("profile_", ".jpg", context.cacheDir)
-                inputStream.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-
-                val cloudName = "dfrve8uzg"
-                val uploadPreset = "cobfa_unsigned_preset"
-
-                val fileBody = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
-
-                val requestBody = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("file", tempFile.name, fileBody)
-                    .addFormDataPart("upload_preset", uploadPreset)
-                    .build()
-
-                val request = Request.Builder()
-                    .url("https://api.cloudinary.com/v1_1/$cloudName/image/upload")
-                    .post(requestBody)
-                    .build()
-
-                val response = httpClient.newCall(request).execute()
-                val body = response.body?.string().orEmpty()
-
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(
-                        Exception("Image upload failed: HTTP ${response.code} - $body")
+                when (scheme) {
+                    "http", "https" -> uploadRemoteImageUrlToCloudinary(photoUri)
+                    "content", "file" -> uploadLocalImageUriToCloudinary(photoUri)
+                    else -> Result.failure(
+                        Exception("Unsupported image source: $photoUri")
                     )
-                }
-
-                val json = JSONObject(body)
-                val secureUrl = json.optString("secure_url")
-                Log.d("ProfileVM", "Parsed secure_url=$secureUrl")
-
-                if (secureUrl.isBlank()) {
-                    Result.failure(Exception("Cloudinary did not return secure_url"))
-                } else {
-                    Result.success(secureUrl)
                 }
             } catch (e: Exception) {
                 Log.e("ProfileVM", "Cloudinary upload exception", e)
                 Result.failure(e)
             }
         }
+
+    private fun uploadRemoteImageUrlToCloudinary(remoteUrl: String): Result<String> {
+        return try {
+            val cloudName = "dfrve8uzg"
+            val uploadPreset = "cobfa_unsigned_preset"
+
+            val requestBody = FormBody.Builder()
+                .add("file", remoteUrl)
+                .add("upload_preset", uploadPreset)
+                .build()
+
+            val request = Request.Builder()
+                .url("https://api.cloudinary.com/v1_1/$cloudName/image/upload")
+                .post(requestBody)
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string().orEmpty()
+
+            if (!response.isSuccessful) {
+                return Result.failure(
+                    Exception("Remote image upload failed: HTTP ${response.code} - $body")
+                )
+            }
+
+            val json = JSONObject(body)
+            val secureUrl = json.optString("secure_url")
+            Log.d("ProfileVM", "Remote upload secure_url=$secureUrl")
+
+            if (secureUrl.isBlank()) {
+                Result.failure(Exception("Cloudinary did not return secure_url"))
+            } else {
+                Result.success(secureUrl)
+            }
+        } catch (e: Exception) {
+            Log.e("ProfileVM", "Remote image upload exception", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun uploadLocalImageUriToCloudinary(photoUri: String): Result<String> {
+        return try {
+            val context = getApplication<Application>()
+            val uri = Uri.parse(photoUri)
+
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: return Result.failure(Exception("Unable to read selected image"))
+
+            val tempFile = File.createTempFile("profile_", ".jpg", context.cacheDir)
+            inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            val cloudName = "dfrve8uzg"
+            val uploadPreset = "cobfa_unsigned_preset"
+
+            val fileBody = tempFile.asRequestBody("image/*".toMediaTypeOrNull())
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", tempFile.name, fileBody)
+                .addFormDataPart("upload_preset", uploadPreset)
+                .build()
+
+            val request = Request.Builder()
+                .url("https://api.cloudinary.com/v1_1/$cloudName/image/upload")
+                .post(requestBody)
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string().orEmpty()
+
+            tempFile.delete()
+
+            if (!response.isSuccessful) {
+                return Result.failure(
+                    Exception("Image upload failed: HTTP ${response.code} - $body")
+                )
+            }
+
+            val json = JSONObject(body)
+            val secureUrl = json.optString("secure_url")
+            Log.d("ProfileVM", "Local upload secure_url=$secureUrl")
+
+            if (secureUrl.isBlank()) {
+                Result.failure(Exception("Cloudinary did not return secure_url"))
+            } else {
+                Result.success(secureUrl)
+            }
+        } catch (e: Exception) {
+            Log.e("ProfileVM", "Local image upload exception", e)
+            Result.failure(e)
+        }
+    }
 }
