@@ -1,4 +1,4 @@
-package com.cobfa.app.ui.insights
+package com.cobfa.app.ui.dashboard.insights
 
 sealed class InsightAction {
     data class SetBudget(val insightKey: String) : InsightAction()

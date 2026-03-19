@@ -2,8 +2,10 @@ package com.cobfa.app.ui.dashboard
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -46,8 +48,8 @@ import com.cobfa.app.data.repository.SyncManager
 import com.cobfa.app.ui.ShimmerCard
 import com.cobfa.app.ui.expense.manual.ManualExpenseDialog
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
-import com.cobfa.app.ui.insights.InsightAction
-import com.cobfa.app.ui.insights.InsightCard
+import com.cobfa.app.ui.dashboard.insights.InsightAction
+import com.cobfa.app.ui.dashboard.insights.InsightCard
 import com.cobfa.app.utils.PreferenceManager
 import kotlinx.coroutines.launch
 
@@ -291,8 +293,8 @@ fun DashboardScreen(
                                 onAction = { action ->
                                     when (action) {
                                         is InsightAction.OpenUrl -> {
-                                            val uri = android.net.Uri.parse(action.url)
-                                            androidx.browser.customtabs.CustomTabsIntent.Builder()
+                                            val uri = Uri.parse(action.url)
+                                            CustomTabsIntent.Builder()
                                                 .build()
                                                 .launchUrl(context, uri)
                                         }

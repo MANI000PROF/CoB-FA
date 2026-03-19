@@ -3,24 +3,38 @@ package com.cobfa.app.ui.dashboard
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Leaderboard
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,13 +55,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cobfa.app.domain.model.MonthlySummary
 import com.cobfa.app.ui.expense.category.CategoryPickerBottomSheet
 import com.cobfa.app.ui.expense.pending.PendingExpensesViewModel
+import kotlin.math.abs
 
 @Composable
 fun SectionCard(
@@ -258,28 +279,54 @@ fun SummarySectionCards(
     onExpenseClick: () -> Unit = {},
     onBalanceClick: () -> Unit = {}
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         SummaryCard(
             title = "Income",
-            amount = summary.income,
+            amountText = "₹${formatCompactAmount(summary.income)}",
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.weight(1f),
             onClick = onIncomeClick
         )
         SummaryCard(
             title = "Expense",
-            amount = summary.expense,
+            amountText = "₹${formatCompactAmount(summary.expense)}",
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.weight(1f),
             onClick = onExpenseClick
         )
         SummaryCard(
             title = "Balance",
-            amount = summary.balance,
-            color = if (summary.balance >= 0) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
+            amountText = "₹${formatCompactAmount(summary.balance)}",
+            color = if (summary.balance >= 0) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
             modifier = Modifier.weight(1f),
             onClick = onBalanceClick
         )
+    }
+}
+
+private fun formatCompactAmount(value: Double): String {
+    val sign = if (value < 0) "-" else ""
+    val amount = abs(value)
+
+    fun clean(num: Double): String {
+        val text = String.format("%.2f", num)
+        return text
+            .replace(Regex("\\.00$"), "")
+            .replace(Regex("(\\.\\d)0$"), "$1")
+    }
+
+    return when {
+        amount < 1_000 -> "$sign${clean(amount)}"
+        amount < 100_000 -> "$sign${clean(amount / 1_000)}K"
+        amount < 10_000_000 -> "$sign${clean(amount / 100_000)}L"
+        else -> "$sign${clean(amount / 10_000_000)}Cr"
     }
 }
 
@@ -292,44 +339,227 @@ fun ActionButtons(
     onViewAchievements: () -> Unit,
     onViewLeaderboard: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(
-            modifier = Modifier.fillMaxWidth(),
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        PrimaryDashboardAction(
+            title = "Add expense",
+            subtitle = "Log a new transaction instantly",
+            icon = Icons.Default.AddCircle,
             onClick = onAddExpense
-        ) { Text("Add expense") }
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            FilledTonalButton(
+            DashboardQuickActionCard(
+                title = "Budgets",
+                subtitle = "Track limits",
+                icon = Icons.Default.Savings,
+                accent = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
                 onClick = onViewBudgets
-            ) { Text("Budgets") }
-            FilledTonalButton(
+            )
+
+            DashboardQuickActionCard(
+                title = "Analytics",
+                subtitle = "See trends",
+                icon = Icons.Default.Analytics,
+                accent = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.weight(1f),
                 onClick = onViewAnalytics
-            ) { Text("Analytics") }
+            )
         }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            FilledTonalButton(
+            DashboardQuickActionCard(
+                title = "Achievements",
+                subtitle = "Stay motivated",
+                icon = Icons.Default.EmojiEvents,
+                accent = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f),
                 onClick = onViewAchievements
-            ) { Text("Achievements") }
-            FilledTonalButton(
+            )
+
+            DashboardQuickActionCard(
+                title = "Leaderboard",
+                subtitle = "Compare progress",
+                icon = Icons.Default.Leaderboard,
+                accent = MaterialTheme.colorScheme.error,
                 modifier = Modifier.weight(1f),
                 onClick = onViewLeaderboard
-            ) { Text("Leaderboard") }
+            )
         }
 
         FilledTonalButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(18.dp),
             onClick = onViewExpenses
-        ) { Text("View expenses") }
+        ) {
+            Icon(
+                imageVector = Icons.Default.ReceiptLong,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text("View expenses")
+        }
+    }
+}
+
+@Composable
+private fun PrimaryDashboardAction(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(92.dp)
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            primary.copy(alpha = 0.14f),
+                            tertiary.copy(alpha = 0.10f),
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                )
+                .padding(horizontal = 18.dp, vertical = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = primary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(16.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.size(14.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.size(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardQuickActionCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(116.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.10f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = accent.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(14.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 

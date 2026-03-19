@@ -1,4 +1,4 @@
-package com.cobfa.app.ui.insights
+package com.cobfa.app.ui.dashboard.insights
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Report
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -32,6 +31,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -61,44 +62,73 @@ fun InsightCard(
     modifier: Modifier = Modifier,
     onAction: (InsightAction) -> Unit
 ) {
-    var selected by rememberSaveable { mutableStateOf<String?>(null) } // store key only (saveable-safe)
-    var showAll by rememberSaveable { mutableStateOf(false) }
+    var sheetMode by rememberSaveable { mutableStateOf("none") } // none, all, detail
+    var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val selectedInsight = remember(insights, selected) { insights.firstOrNull { it.key == selected } }
+    val visibleInsights = remember(insights) {
+        insights.filter { it.isActionableInsight() }
+    }
+
+    val hasInsights = visibleInsights.isNotEmpty()
+
+    val selectedInsight = remember(visibleInsights, selectedKey) {
+        visibleInsights.firstOrNull { it.key == selectedKey }
+    }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
 
+    fun openAllSheet() {
+        if (!hasInsights) return
+        selectedKey = null
+        sheetMode = "all"
+    }
+
+    fun openDetailSheet(key: String) {
+        val exists = visibleInsights.any { it.key == key }
+        if (!exists) return
+        selectedKey = key
+        sheetMode = "detail"
+    }
+
     fun closeSheet() {
-        scope.launch { sheetState.hide() }.invokeOnCompletion {
-            selected = null
-            showAll = false
+        scope.launch {
+            sheetState.hide()
+            sheetMode = "none"
+            selectedKey = null
         }
     }
 
-    if (selectedInsight != null) {
-        ModalBottomSheet(
-            onDismissRequest = { selected = null },
-            sheetState = sheetState
-        ) {
-            InsightDetailSheet(
-                insight = selectedInsight,
-                onAction = onAction,
-                onClose = { closeSheet() }
-            )
-        }
+    val showSheet = when (sheetMode) {
+        "all" -> hasInsights
+        "detail" -> selectedInsight != null
+        else -> false
     }
 
-    if (showAll) {
+    if (showSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showAll = false },
+            onDismissRequest = { closeSheet() },
             sheetState = sheetState
         ) {
-            AllInsightsSheet(
-                insights = insights,
-                onInsightClick = { ins -> selected = ins.key },
-                onClose = { closeSheet() }
-            )
+            when (sheetMode) {
+                "all" -> {
+                    AllInsightsSheet(
+                        insights = visibleInsights,
+                        onInsightClick = { ins -> openDetailSheet(ins.key) },
+                        onClose = { closeSheet() }
+                    )
+                }
+
+                "detail" -> {
+                    selectedInsight?.let { insight ->
+                        InsightDetailSheet(
+                            insight = insight,
+                            onAction = onAction,
+                            onClose = { closeSheet() }
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -107,19 +137,23 @@ fun InsightCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            HeaderRow(onOpenAll = { showAll = true })
+            HeaderRow(
+                hasInsights = hasInsights,
+                onOpenAll = { openAllSheet() }
+            )
 
-            val primary = insights.firstOrNull()
+            val primary = visibleInsights.firstOrNull()
+
             if (primary == null) {
                 EmptyState()
             } else {
                 PrimaryInsight(
                     ins = primary,
-                    onDoThis = { selected = primary.key },
-                    onNotUseful = { selected = primary.key }
+                    onDoThis = { openDetailSheet(primary.key) },
+                    onNotUseful = { openDetailSheet(primary.key) }
                 )
 
-                val secondary = insights.drop(1).take(2)
+                val secondary = visibleInsights.drop(1).take(2)
                 if (secondary.isNotEmpty()) {
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -127,14 +161,18 @@ fun InsightCard(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         secondary.forEach { ins ->
-                            SecondaryChip(ins = ins, onClick = { selected = ins.key })
+                            SecondaryChip(
+                                ins = ins,
+                                onClick = { openDetailSheet(ins.key) }
+                            )
                         }
                     }
                 }
 
-                if (insights.size > 3) {
-                    TextButton(onClick = { showAll = true }) {
-                        Text("+ ${insights.size - 3} more insights")
+                val remainingCount = visibleInsights.size - 3
+                if (remainingCount > 0) {
+                    TextButton(onClick = { openAllSheet() }) {
+                        Text("+ $remainingCount more insights")
                     }
                 }
             }
@@ -142,11 +180,73 @@ fun InsightCard(
     }
 }
 
+
+private fun PersonalizedInsight.isActionableInsight(): Boolean {
+    val normalizedTitle = title.trim().lowercase()
+    val normalizedMessage = message.trim()
+    val normalizedMessageLower = normalizedMessage.lowercase()
+
+    if (normalizedTitle.isBlank() && normalizedMessage.isBlank()) return false
+
+    val blockedWholeMessages = setOf(
+        "",
+        "no insights yet",
+        "no insights yet.",
+        "no personalized insights yet",
+        "no personalized insights yet.",
+        "no insights available",
+        "no insights available.",
+        "not enough data yet",
+        "not enough data yet.",
+        "add some expenses to get insights",
+        "add some expenses to get insights.",
+        "track a few expenses to get insights",
+        "track a few expenses to get insights."
+    )
+
+    if (normalizedMessageLower in blockedWholeMessages) return false
+
+    val (reasons, suggestionsRaw) = splitSuggestions(normalizedMessage)
+    val cleanedReasons = reasons.trim()
+    val cleanedSuggestions = suggestionsRaw.trim()
+
+    val blockedReasonTexts = setOf(
+        "",
+        "no insights yet",
+        "no insights yet.",
+        "no personalized insights yet",
+        "no personalized insights yet.",
+        "no insights available",
+        "no insights available.",
+        "not enough data yet",
+        "not enough data yet."
+    )
+
+    val hasUsefulReasons = cleanedReasons.isNotBlank() &&
+            cleanedReasons.lowercase() !in blockedReasonTexts
+
+    val suggestionItems = cleanedSuggestions
+        .split("•")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+    val hasUsefulSuggestions = suggestionItems.isNotEmpty()
+
+    return hasUsefulReasons || hasUsefulSuggestions
+}
+
 @Composable
-private fun HeaderRow(onOpenAll: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun HeaderRow(
+    hasInsights: Boolean,
+    onOpenAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(8.dp))
+
         Column(modifier = Modifier.weight(1f)) {
             Text("AI insights", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -155,15 +255,25 @@ private fun HeaderRow(onOpenAll: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        IconButton(onClick = onOpenAll) {
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Open all insights")
+
+        if (hasInsights) {
+            IconButton(onClick = onOpenAll) {
+                Icon(
+                    Icons.Default.KeyboardArrowRight,
+                    contentDescription = "Open all insights"
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun EmptyState() {
-    Text("No insights yet", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+    Text(
+        "No insights yet",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Medium
+    )
     Text(
         "Confirm a few expenses and we’ll start coaching you.",
         style = MaterialTheme.typography.bodySmall,
@@ -182,13 +292,17 @@ private fun PrimaryInsight(
 
     val (reasons, suggestionsRaw) = splitSuggestions(ins.message)
 
+    val hasReasons = reasons.isNotBlank()
+    val hasSuggestions = suggestionsRaw.isNotBlank()
+    val hasAnyInsightContent = hasReasons || hasSuggestions
+    val hasActionableInsight = hasSuggestions
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Title row (clean)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(severityIcon(ins.severity), null, tint = colors.accent)
             Spacer(Modifier.width(8.dp))
@@ -213,14 +327,23 @@ private fun PrimaryInsight(
             )
         }
 
-        // ✅ Suggestions as HERO (not buried)
-        SuggestionHeroInline(
-            suggestionsRaw = suggestionsRaw,
-            onClick = onDoThis
-        )
+        if (!hasAnyInsightContent) {
+            Text(
+                text = "No insights yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
 
-        // Reasons (not duplicated)
-        if (reasons.isNotBlank()) {
+        if (hasSuggestions) {
+            SuggestionHeroInline(
+                suggestionsRaw = suggestionsRaw,
+                onClick = onDoThis
+            )
+        }
+
+        if (hasReasons) {
             Text(
                 text = reasons,
                 style = MaterialTheme.typography.bodyMedium,
@@ -229,26 +352,35 @@ private fun PrimaryInsight(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Text(
-                text = if (expanded) "See less" else "See more",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable { expanded = !expanded }
-            )
+            val shouldShowExpandToggle = reasons.length > 140 || reasons.count { it == '\n' } > 1
+            if (shouldShowExpandToggle) {
+                Text(
+                    text = if (expanded) "See less" else "See more",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { expanded = !expanded }
+                )
+            }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AssistChip(
-                onClick = onDoThis,
-                label = { Text("Do this") },
-                leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = colors.container,
-                    labelColor = colors.accent,
-                    leadingIconContentColor = colors.accent
+        if (hasActionableInsight) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AssistChip(
+                    onClick = onDoThis,
+                    label = { Text("Do this") },
+                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = colors.container,
+                        labelColor = colors.accent,
+                        leadingIconContentColor = colors.accent
+                    )
                 )
-            )
-            AssistChip(onClick = onNotUseful, label = { Text("Not useful") })
+
+                AssistChip(
+                    onClick = onNotUseful,
+                    label = { Text("Not useful") }
+                )
+            }
         }
     }
 }
@@ -275,7 +407,10 @@ private fun SuggestionHeroInline(
             containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Text(
                 "Suggested swap",
                 style = MaterialTheme.typography.labelMedium,
@@ -320,10 +455,9 @@ private fun InsightDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 620.dp) // sheet max height
+            .heightIn(max = 620.dp)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // --- Scrollable content ---
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -332,7 +466,11 @@ private fun InsightDetailSheet(
             item {
                 Text("Insight", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
-                Text(insight.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    insight.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             if (reasons.isNotBlank()) {
@@ -345,8 +483,10 @@ private fun InsightDetailSheet(
                 }
             }
 
-            item {
-                SuggestionsBlockFromText(suggestions)
+            if (suggestions.isNotBlank()) {
+                item {
+                    SuggestionsBlockFromText(suggestions)
+                }
             }
 
             if (resources.isNotEmpty()) {
@@ -361,7 +501,6 @@ private fun InsightDetailSheet(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        // --- Sticky actions (always visible) ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -375,12 +514,16 @@ private fun InsightDetailSheet(
                     onAction(InsightAction.SetBudget(insight.key))
                     onClose()
                 }
-            ) { Text("Set budget") }
+            ) {
+                Text("Set budget")
+            }
 
             Button(
                 modifier = Modifier.weight(1f),
                 onClick = onClose
-            ) { Text("Close") }
+            ) {
+                Text("Close")
+            }
         }
 
         Row(
@@ -462,15 +605,26 @@ private fun SuggestionsBlockFromText(suggestionsText: String) {
 }
 
 private fun curatedResourcesFor(ins: PersonalizedInsight): List<InsightResourceUi> {
-    // Offline, deterministic mapping. Add more keys over time.
     return when {
         ins.key.startsWith("ml_risk_", ignoreCase = true) -> listOf(
-            InsightResourceUi("Atomic Habits (habit loop ideas)", "https://jamesclear.com/atomic-habits", InsightResourceTypeUi.ARTICLE),
-            InsightResourceUi("Tiny Habits (free method)", "https://tinyhabits.com/", InsightResourceTypeUi.TOOL)
+            InsightResourceUi(
+                "Atomic Habits (habit loop ideas)",
+                "https://jamesclear.com/atomic-habits",
+                InsightResourceTypeUi.ARTICLE
+            ),
+            InsightResourceUi(
+                "Tiny Habits (free method)",
+                "https://tinyhabits.com/",
+                InsightResourceTypeUi.TOOL
+            )
         )
 
         ins.key == "top_category_share" -> listOf(
-            InsightResourceUi("Budgeting basics", "https://www.investopedia.com/terms/b/budget.asp", InsightResourceTypeUi.ARTICLE)
+            InsightResourceUi(
+                "Budgeting basics",
+                "https://www.investopedia.com/terms/b/budget.asp",
+                InsightResourceTypeUi.ARTICLE
+            )
         )
 
         else -> emptyList()
@@ -490,16 +644,20 @@ private fun ResourcesBlock(
     resources: List<InsightResourceUi>,
     onOpenUrl: (String) -> Unit
 ) {
-    Text("Learn more", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text(
+        "Learn more",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold
+    )
 
     resources.take(6).forEachIndexed { index, r ->
-        androidx.compose.material3.ListItem(
+        ListItem(
             headlineContent = { Text(r.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             supportingContent = { Text(r.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingContent = { Text(if (r.type == InsightResourceTypeUi.VIDEO) "▶" else "↗") },
             modifier = Modifier.clickable { onOpenUrl(r.url) },
-            colors = androidx.compose.material3.ListItemDefaults.colors(containerColor = Color.Transparent)
-        ) // ListItemDefaults.colors(containerColor=...) is the supported API. [web:192]
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        )
 
         if (index != minOf(resources.size, 6) - 1) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -515,7 +673,11 @@ private fun AllInsightsSheet(
 ) {
     Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("All insights", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(
+                "All insights",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
             TextButton(onClick = onClose) { Text("Close") }
         }
 
@@ -528,7 +690,7 @@ private fun AllInsightsSheet(
         ) {
             items(
                 count = insights.size,
-                key = { idx -> insights[idx].key } // stable keys recommended for lazy lists. [web:388]
+                key = { idx -> insights[idx].key }
             ) { idx ->
                 val ins = insights[idx]
                 ElevatedCard(
@@ -536,7 +698,10 @@ private fun AllInsightsSheet(
                         .fillMaxWidth()
                         .clickable { onInsightClick(ins) }
                 ) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text(
                             ins.title,
                             style = MaterialTheme.typography.titleSmall,
