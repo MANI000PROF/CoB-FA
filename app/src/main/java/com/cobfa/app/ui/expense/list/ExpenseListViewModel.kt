@@ -59,10 +59,6 @@ class ExpenseListViewModel(
         _amountRange.value = range
     }
 
-    fun resetAmountRange() {
-        _amountRange.value = fullAmountRange
-    }
-
     private fun baseFlow(mode: ExcludedMode, sort: SortMode): Flow<List<ExpenseEntity>> {
         return when (mode) {
             ExcludedMode.ACTIVE_ONLY ->
@@ -79,7 +75,7 @@ class ExpenseListViewModel(
         }
     }
 
-    val expenses: StateFlow<List<ExpenseEntity>> =
+    val expenses: StateFlow<List<ExpenseEntity>?> =
         combine(excludedMode, sortMode) { mode, sort -> mode to sort }
             .flatMapLatest { (mode, sort) -> baseFlow(mode, sort) }
             .combine(debouncedQuery) { list, query -> list to query }
@@ -109,7 +105,7 @@ class ExpenseListViewModel(
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = emptyList()
+                initialValue = null
             )
 
     private data class Quad(

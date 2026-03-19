@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,6 +76,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -103,6 +106,8 @@ private const val MAX_FILTER_AMOUNT = 50000f
 @Composable
 fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val expenses by vm.expenses.collectAsState()
+    val isInitialLoading = expenses == null
+    val expenseList = expenses.orEmpty()
     val searchQuery by vm.searchQuery.collectAsState()
     val categoryFilter by vm.categoryFilter.collectAsState()
     val onlyUncat by vm.onlyUncategorized.collectAsState()
@@ -115,32 +120,13 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var previousIndex by remember { mutableIntStateOf(0) }
-    var previousScrollOffset by remember { mutableIntStateOf(0) }
-    var showSearchHeader by remember { mutableStateOf(true) }
-
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-        val currentIndex = listState.firstVisibleItemIndex
-        val currentOffset = listState.firstVisibleItemScrollOffset
-
-        val isScrollingUp = currentIndex < previousIndex ||
-                (currentIndex == previousIndex && currentOffset < previousScrollOffset)
-
-        val isAtTop = currentIndex == 0 && currentOffset <= 10
-
-        showSearchHeader = isAtTop || isScrollingUp
-
-        previousIndex = currentIndex
-        previousScrollOffset = currentOffset
-    }
-
     var showFilterSheet by remember { mutableStateOf(false) }
     var selectedExpense by remember { mutableStateOf<ExpenseEntity?>(null) }
     var showDetailsSheet by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showEditSheet by remember { mutableStateOf(false) }
 
-    val noExpensesAtAll = expenses.isEmpty() &&
+    val noExpensesAtAll = expenseList.isEmpty() &&
             searchQuery.isBlank() &&
             categoryFilter == null &&
             merchantFilter == null &&
@@ -171,7 +157,7 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
     }.size
 
     val dayFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-    val grouped = remember(expenses) { expenses.groupBy { dayFmt.format(Date(it.timestamp)) } }
+    val grouped = remember(expenseList) { expenseList.groupBy { dayFmt.format(Date(it.timestamp)) } }
 
     Scaffold(
         topBar = {
@@ -195,104 +181,111 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "search_filters") {
-                    AnimatedVisibility(
-                        visible = showSearchHeader,
-                        enter = fadeIn(),
-                        exit = fadeOut()
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp
                     ) {
-                        Surface(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 6.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = searchQuery,
-                                    onValueChange = vm::updateSearchQuery,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                    label = { Text("Search expenses") },
-                                    placeholder = { Text("Merchant or category") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Search, contentDescription = null)
-                                    },
-                                    trailingIcon = {
-                                        if (searchQuery.isNotBlank()) {
-                                            IconButton(onClick = { vm.updateSearchQuery("") }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Clear,
-                                                    contentDescription = "Clear search"
-                                                )
-                                            }
-                                        }
-                                    }
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    FilledTonalButton(
-                                        onClick = { showFilterSheet = true },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.FilterList,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.size(8.dp))
-                                        Text(
-                                            if (activeFilterCount > 0) "Filters ($activeFilterCount)" else "Filters"
-                                        )
-                                    }
-
-                                    if (hasActiveFilters) {
-                                        TextButton(onClick = { vm.clearFilters() }) {
-                                            Text("Clear all")
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = vm::updateSearchQuery,
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                label = { Text("Search expenses") },
+                                placeholder = { Text("Merchant or category") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Search, contentDescription = null)
+                                },
+                                trailingIcon = {
+                                    if (searchQuery.isNotBlank()) {
+                                        IconButton(onClick = { vm.updateSearchQuery("") }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "Clear search"
+                                            )
                                         }
                                     }
                                 }
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                FilledTonalButton(
+                                    onClick = { showFilterSheet = true },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FilterList,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(
+                                        if (activeFilterCount > 0) {
+                                            "Filters ($activeFilterCount)"
+                                        } else {
+                                            "Filters"
+                                        }
+                                    )
+                                }
 
                                 if (hasActiveFilters) {
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        merchantFilter?.let { ActiveFilterChip(text = it) }
-                                        categoryFilter?.let {
-                                            ActiveFilterChip(
-                                                text = it.name.replace("_", " ")
-                                                    .lowercase()
-                                                    .replaceFirstChar { c -> c.uppercase() }
-                                            )
-                                        }
-                                        if (onlyUncat) ActiveFilterChip("Uncategorized")
-                                        if (sortMode == ExpenseListViewModel.SortMode.OLDEST) {
-                                            ActiveFilterChip("Oldest first")
-                                        }
-                                        when (excludedMode) {
-                                            ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED ->
-                                                ActiveFilterChip("Include excluded")
-                                            ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY ->
-                                                ActiveFilterChip("Excluded only")
-                                            else -> Unit
-                                        }
-                                        if (amountRange.start > 0f || amountRange.endInclusive < MAX_FILTER_AMOUNT) {
-                                            ActiveFilterChip(
-                                                text = "₹${amountRange.start.toInt()} - ₹${amountRange.endInclusive.toInt()}"
-                                            )
-                                        }
+                                    TextButton(onClick = { vm.clearFilters() }) {
+                                        Text("Clear all")
+                                    }
+                                }
+                            }
+
+                            if (hasActiveFilters) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    merchantFilter?.let { ActiveFilterChip(text = it) }
+
+                                    categoryFilter?.let {
+                                        ActiveFilterChip(
+                                            text = it.name.replace("_", " ")
+                                                .lowercase()
+                                                .replaceFirstChar { c -> c.uppercase() }
+                                        )
+                                    }
+
+                                    if (onlyUncat) {
+                                        ActiveFilterChip("Uncategorized")
+                                    }
+
+                                    if (sortMode == ExpenseListViewModel.SortMode.OLDEST) {
+                                        ActiveFilterChip("Oldest first")
+                                    }
+
+                                    when (excludedMode) {
+                                        ExpenseListViewModel.ExcludedMode.INCLUDE_EXCLUDED ->
+                                            ActiveFilterChip("Include excluded")
+
+                                        ExpenseListViewModel.ExcludedMode.EXCLUDED_ONLY ->
+                                            ActiveFilterChip("Excluded only")
+
+                                        else -> Unit
+                                    }
+
+                                    if (amountRange.start > 0f || amountRange.endInclusive < MAX_FILTER_AMOUNT) {
+                                        ActiveFilterChip(
+                                            text = "₹${amountRange.start.toInt()} - ₹${amountRange.endInclusive.toInt()}"
+                                        )
                                     }
                                 }
                             }
@@ -300,7 +293,18 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                     }
                 }
 
-                if (expenses.isEmpty()) {
+                if (isInitialLoading) {
+                    item(key = "initial_loading") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 56.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ExpenseListLoadingState()
+                        }
+                    }
+                } else if (expenseList.isEmpty()) {
                     item(key = "empty_state") {
                         Box(
                             modifier = Modifier
@@ -362,19 +366,13 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 }
             }
 
-            if (expenses.isNotEmpty()) {
-                AnimatedVisibility(
-                    visible = listState.isScrollInProgress,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
+            if (!isInitialLoading && expenseList.isNotEmpty()) {
+                ExpenseListScrollbar(
+                    listState = listState,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 4.dp, top = 12.dp, bottom = 12.dp)
-                ) {
-                    ExpenseListScrollbar(
-                        listState = listState
-                    )
-                }
+                        .fillMaxHeight()
+                )
             }
         }
     }
@@ -447,6 +445,43 @@ fun ExpenseListScreen(vm: ExpenseListViewModel) {
                 showEditSheet = false
                 showDetailsSheet = false
             }
+        )
+    }
+}
+
+@Composable
+private fun ExpenseListLoadingState() {
+    val composition by rememberLottieComposition(
+        LottieCompositionSpec.RawRes(R.raw.loader)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        LottieAnimation(
+            composition = composition,
+            iterations = LottieConstants.IterateForever,
+            modifier = Modifier.size(120.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Loading expenses...",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Preparing your transactions",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -774,48 +809,82 @@ private fun ExpenseListScrollbar(
     modifier: Modifier = Modifier
 ) {
     val layoutInfo = listState.layoutInfo
+    val visibleItems = layoutInfo.visibleItemsInfo
     val totalItemsCount = layoutInfo.totalItemsCount
-    val visibleItemsInfo = layoutInfo.visibleItemsInfo
 
-    if (totalItemsCount == 0 || visibleItemsInfo.isEmpty()) return
+    if (totalItemsCount == 0 || visibleItems.isEmpty()) return
 
-    val firstVisible = visibleItemsInfo.first().index.toFloat()
-    val visibleCount = visibleItemsInfo.size.toFloat()
-    val totalCount = totalItemsCount.toFloat()
+    val targetAlpha = if (listState.isScrollInProgress) 1f else 0f
+    val animatedAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = if (listState.isScrollInProgress) 120 else 420
+        ),
+        label = "expenseScrollbarAlpha"
+    )
 
-    val thumbHeightFraction = (visibleCount / totalCount).coerceIn(0.08f, 0.35f)
-    val thumbOffsetFraction = (firstVisible / totalCount).coerceIn(0f, 1f - thumbHeightFraction)
+    if (animatedAlpha <= 0.01f) return
+
+    val viewportStart = layoutInfo.viewportStartOffset
+    val viewportEnd = layoutInfo.viewportEndOffset
+    val viewportHeightPx = (viewportEnd - viewportStart).coerceAtLeast(1)
+
+    val totalVisibleItemsSize = visibleItems.sumOf { it.size }
+    val avgItemSizePx = (totalVisibleItemsSize / visibleItems.size.toFloat()).coerceAtLeast(1f)
+
+    val estimatedContentHeightPx = avgItemSizePx * totalItemsCount
+    val visibleFraction = (viewportHeightPx / estimatedContentHeightPx).coerceIn(0.06f, 1f)
+
+    val firstVisible = visibleItems.first()
+    val rawScrollOffsetPx =
+        (firstVisible.index * avgItemSizePx) - firstVisible.offset.toFloat()
+
+    val maxScrollPx = (estimatedContentHeightPx - viewportHeightPx).coerceAtLeast(1f)
+    val scrollFraction = (rawScrollOffsetPx / maxScrollPx).coerceIn(0f, 1f)
 
     BoxWithConstraints(
         modifier = modifier
-            .fillMaxHeight()
-            .width(12.dp)
+            .width(10.dp)
     ) {
-        val trackHeight = maxHeight
-        val thumbHeight = trackHeight * thumbHeightFraction
-        val freeSpace = trackHeight - thumbHeight
-        val thumbOffset = freeSpace * thumbOffsetFraction
+        val trackTopPadding = 8.dp
+        val trackBottomPadding = 8.dp
+        val trackHeight = maxHeight - trackTopPadding - trackBottomPadding
+        val thumbHeight = (trackHeight * visibleFraction).coerceIn(36.dp, 96.dp)
+        val thumbTravel = (trackHeight - thumbHeight).coerceAtLeast(0.dp)
+        val thumbOffset = thumbTravel * scrollFraction
 
         Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+            modifier = Modifier
+                .fillMaxHeight()
+                .align(Alignment.CenterEnd)
+                .padding(top = trackTopPadding, bottom = trackBottomPadding),
+            contentAlignment = Alignment.TopEnd
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(3.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {}
+                    .width(2.dp)
+                    .align(Alignment.CenterEnd)
+                    .background(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f),
+                        shape = RoundedCornerShape(100)
+                    )
+            )
 
-            Surface(
+            Box(
                 modifier = Modifier
                     .padding(top = thumbOffset)
-                    .width(5.dp)
-                    .height(thumbHeight),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {}
+                    .width(4.dp)
+                    .height(thumbHeight)
+                    .align(Alignment.TopEnd)
+                    .graphicsLayer {
+                        alpha = animatedAlpha
+                    }
+                    .background(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(100)
+                    )
+            )
         }
     }
 }
