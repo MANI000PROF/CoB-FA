@@ -28,6 +28,7 @@ class FirestoreService {
     data class PublicUser(
         val uid: String = "",
         val username: String = "",
+        val profilePicUrl: String = "",
         val city: String = "",
         val state: String = "",
         val country: String = "India",
@@ -37,6 +38,7 @@ class FirestoreService {
 
     suspend fun upsertPublicUser(
         username: String,
+        profilePicUrl: String,
         city: String,
         state: String,
         country: String = "India",
@@ -48,6 +50,7 @@ class FirestoreService {
             val data = mapOf(
                 "uid" to uid,
                 "username" to username,
+                "profilePicUrl" to profilePicUrl,
                 "city" to city.trim(),
                 "state" to state.trim(),
                 "country" to country.trim(),
@@ -195,10 +198,6 @@ class FirestoreService {
         }
     }
 
-    /**
-     * Fetch all confirmed expenses from Firestore
-     * Called on app launch to restore expense history
-     */
     suspend fun fetchAllConfirmedExpenses(): Result<List<ExpenseEntity>> {
         return try {
             val userId = currentUserId ?: return Result.failure(Exception("User not logged in"))

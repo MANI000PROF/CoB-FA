@@ -1,50 +1,63 @@
 package com.cobfa.app.ui.theme
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
 
-// Fixed brand accents (do not depend on wallpaper)
-val CobTeal = Color(0xFF2EC4B6)
-val CobNavy = Color(0xFF0B3C49)
-val CobMint = Color(0xFFCBF3F0)
-val CobGray = Color(0xFF9BB4C1)
+val CobTeal = Color(0xFF09AFAB)
+val CobNavy = Color(0xFF004764)
+val CobGray = Color(0xFF8EA7B2)
 
-// Fallback schemes (used on API < 31 or when dynamicColor=false)
 val LightColorScheme = lightColorScheme(
     primary = CobTeal,
-    onPrimary = CobNavy,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF9FF0EC),
+    onPrimaryContainer = Color(0xFF00201F),
+
     secondary = CobNavy,
     onSecondary = Color.White,
-    tertiary = CobTeal,
-    onTertiary = CobNavy,
+    secondaryContainer = Color(0xFFC7E7F5),
+    onSecondaryContainer = Color(0xFF001E2B),
 
-    background = Color.White,
-    onBackground = CobNavy,
-    surface = Color.White,
-    onSurface = CobNavy,
+    tertiary = Color(0xFF0B7285),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFBDEBFA),
+    onTertiaryContainer = Color(0xFF001F27),
 
-    surfaceVariant = CobMint,
-    onSurfaceVariant = CobNavy,
+    background = Color(0xFFF3FBFB),
+    onBackground = Color(0xFF102022),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF102022),
 
-    outline = CobGray,
+    surfaceVariant = Color(0xFFDCE8E8),
+    onSurfaceVariant = Color(0xFF405253),
+
+    outline = CobGray
 )
 
 val DarkColorScheme = darkColorScheme(
-    primary = CobTeal,
-    onPrimary = CobNavy,
-    secondary = CobTeal,
-    onSecondary = CobNavy,
-    tertiary = CobMint,
-    onTertiary = CobNavy,
+    primary = Color(0xFF78D9D5),
+    onPrimary = Color(0xFF003735),
+    primaryContainer = Color(0xFF00514E),
+    onPrimaryContainer = Color(0xFF9FF0EC),
 
-    background = Color(0xFF071F26),
-    onBackground = Color(0xFFE7F7F5),
-    surface = Color(0xFF071F26),
-    onSurface = Color(0xFFE7F7F5),
+    secondary = Color(0xFF8CC9E0),
+    onSecondary = Color(0xFF003547),
+    secondaryContainer = Color(0xFF004764),
+    onSecondaryContainer = Color(0xFFC7E7F5),
 
-    surfaceVariant = Color(0xFF0F2C35),
-    onSurfaceVariant = Color(0xFFCFE9E6),
+    tertiary = Color(0xFF82D4EA),
+    onTertiary = Color(0xFF003641),
+    tertiaryContainer = Color(0xFF0B7285),
+    onTertiaryContainer = Color(0xFFBDEBFA),
 
-    outline = Color(0xFF3D6470),
+    background = Color(0xFF091517),
+    onBackground = Color(0xFFDDE5E5),
+    surface = Color(0xFF091517),
+    onSurface = Color(0xFFDDE5E5),
+
+    surfaceVariant = Color(0xFF243738),
+    onSurfaceVariant = Color(0xFFB8C9C9),
+
+    outline = Color(0xFF88999A)
 )

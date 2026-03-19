@@ -1,20 +1,25 @@
 package com.cobfa.app.ui.profile
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -26,24 +31,26 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -68,101 +75,227 @@ fun AccountInsightsScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("Insights") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+            CenterAlignedTopAppBar(
+                modifier = Modifier.statusBarsPadding(),
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Account Insights",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.4.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Your activity, privacy and app intelligence",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                }
+                },
+                navigationIcon = {
+                    Surface(
+                        onClick = onBack,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 2.dp,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background
+                )
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            InsightSummaryCard(
-                title = "Financial snapshot",
-                subtitle = "Your account and tracking overview"
-            ) {
-                InsightTile(
-                    title = "Account status",
-                    subtitle = if (uiState.isLoggedIn) "Active and synced" else "Not signed in",
+            item {
+                InsightsHeroCard(
+                    isLoggedIn = uiState.isLoggedIn,
+                    autoTrackingEnabled = uiState.autoTrackingEnabled,
+                    lastSmsTimestamp = uiState.lastSmsTimestamp
+                )
+            }
+
+            item {
+                InsightSummaryCard(
+                    title = "Financial snapshot",
+                    subtitle = "Your account and tracking overview",
                     icon = Icons.Default.VerifiedUser
-                )
-                InsightTile(
-                    title = "Tracking status",
-                    subtitle = if (uiState.autoTrackingEnabled) {
-                        "Automatic expense tracking is enabled"
-                    } else {
-                        "Automatic expense tracking is off"
-                    },
-                    icon = Icons.Default.PhoneAndroid
-                )
-                InsightTile(
-                    title = "Last import activity",
-                    subtitle = if (uiState.lastSmsTimestamp > 0L) {
-                        DateUtils.getRelativeTimeSpanString(uiState.lastSmsTimestamp).toString()
-                    } else {
-                        "No import activity yet"
-                    },
-                    icon = Icons.Default.Badge
-                )
+                ) {
+                    InsightTile(
+                        title = "Account status",
+                        subtitle = if (uiState.isLoggedIn) {
+                            "Active and synced"
+                        } else {
+                            "Not signed in"
+                        },
+                        icon = Icons.Default.VerifiedUser
+                    )
+                    InsightTile(
+                        title = "Tracking status",
+                        subtitle = if (uiState.autoTrackingEnabled) {
+                            "Automatic expense tracking is enabled"
+                        } else {
+                            "Automatic expense tracking is off"
+                        },
+                        icon = Icons.Default.PhoneAndroid
+                    )
+                    InsightTile(
+                        title = "Last import activity",
+                        subtitle = if (uiState.lastSmsTimestamp > 0L) {
+                            DateUtils.getRelativeTimeSpanString(uiState.lastSmsTimestamp).toString()
+                        } else {
+                            "No import activity yet"
+                        },
+                        icon = Icons.Default.Badge
+                    )
+                }
             }
 
-            InsightSummaryCard(
-                title = "Privacy & data",
-                subtitle = "How CoB-FA handles your information"
-            ) {
-                InsightTile(
-                    title = "On-device insights",
-                    subtitle = "Behavioral insights run locally on your device",
-                    icon = Icons.Default.Psychology
-                )
-                InsightTile(
-                    title = "Cloud backup",
-                    subtitle = "Firebase sync is used for recovery and continuity",
+            item {
+                InsightSummaryCard(
+                    title = "Privacy & data",
+                    subtitle = "How CoB-FA handles your information",
                     icon = Icons.Default.Shield
-                )
-                InsightTile(
-                    title = "SMS handling",
-                    subtitle = "Raw SMS bodies are not uploaded by the app",
-                    icon = Icons.Default.Lock
-                )
+                ) {
+                    InsightTile(
+                        title = "On-device insights",
+                        subtitle = "Behavioral insights run locally on your device",
+                        icon = Icons.Default.Psychology
+                    )
+                    InsightTile(
+                        title = "Cloud backup",
+                        subtitle = "Firebase sync is used for recovery and continuity",
+                        icon = Icons.Default.Shield
+                    )
+                    InsightTile(
+                        title = "SMS handling",
+                        subtitle = "Raw SMS bodies are not uploaded by the app",
+                        icon = Icons.Default.Lock
+                    )
+                }
             }
 
-            InsightSummaryCard(
-                title = "Behavioral coaching",
-                subtitle = "What makes CoB-FA different"
-            ) {
-                InsightTile(
-                    title = "Smart nudges",
-                    subtitle = "The app highlights risky patterns and helps reduce impulse spending",
-                    icon = Icons.Default.Info
-                )
-                InsightTile(
-                    title = "Progress mindset",
-                    subtitle = "Your budgeting journey is reinforced through goals and rewards",
+            item {
+                InsightSummaryCard(
+                    title = "Behavioral coaching",
+                    subtitle = "What makes CoB-FA different",
                     icon = Icons.Default.Star
-                )
+                ) {
+                    InsightTile(
+                        title = "Smart nudges",
+                        subtitle = "The app highlights risky patterns and helps reduce impulse spending",
+                        icon = Icons.Default.Info
+                    )
+                    InsightTile(
+                        title = "Progress mindset",
+                        subtitle = "Your budgeting journey is reinforced through goals and rewards",
+                        icon = Icons.Default.Star
+                    )
+                }
             }
 
-            InsightSummaryCard(
-                title = "App identity",
-                subtitle = "Built for financial discipline"
-            ) {
-                InsightTile(
-                    title = "About CoB-FA",
-                    subtitle = "Cognitive-Behavioral Financial Advisor focused on smarter spending habits",
+            item {
+                InsightSummaryCard(
+                    title = "App identity",
+                    subtitle = "Built for financial discipline",
                     icon = Icons.Default.Settings
+                ) {
+                    InsightTile(
+                        title = "About CoB-FA",
+                        subtitle = "Cognitive-Behavioral Financial Advisor focused on smarter spending habits",
+                        icon = Icons.Default.Settings
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun InsightsHeroCard(
+    isLoggedIn: Boolean,
+    autoTrackingEnabled: Boolean,
+    lastSmsTimestamp: Long
+) {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        )
+                    )
                 )
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "See how your account works for you",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Track account health, privacy posture, import activity and the intelligence behind your financial guidance.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    InsightStatusChip(
+                        text = if (isLoggedIn) "Account active" else "Signed out",
+                        highlighted = isLoggedIn
+                    )
+                    InsightStatusChip(
+                        text = if (autoTrackingEnabled) "Tracking on" else "Tracking off",
+                        highlighted = autoTrackingEnabled
+                    )
+                    InsightStatusChip(
+                        text = if (lastSmsTimestamp > 0L) "Import history found" else "No imports yet",
+                        highlighted = lastSmsTimestamp > 0L
+                    )
+                }
             }
         }
     }
@@ -172,36 +305,53 @@ fun AccountInsightsScreen(
 private fun InsightSummaryCard(
     title: String,
     subtitle: String,
-    content: @Composable () -> Unit
+    icon: ImageVector,
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                InsightIconBubble(
+                    icon = icon,
+                    selected = true
                 )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+
+                Column {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            content()
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            )
+
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
+            )
         }
     }
 }
@@ -214,8 +364,8 @@ private fun InsightTile(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
     ) {
         Row(
             modifier = Modifier
@@ -224,23 +374,10 @@ private fun InsightTile(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
+            InsightIconBubble(
+                icon = icon,
+                selected = true
+            )
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -248,8 +385,8 @@ private fun InsightTile(
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     text = subtitle,
@@ -258,5 +395,62 @@ private fun InsightTile(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun InsightIconBubble(
+    icon: ImageVector,
+    selected: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .background(
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
+@Composable
+private fun InsightStatusChip(
+    text: String,
+    highlighted: Boolean
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (highlighted) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        }
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (highlighted) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1
+        )
     }
 }

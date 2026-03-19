@@ -3,10 +3,12 @@ package com.cobfa.app.ui.profile
 import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,12 +16,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
@@ -31,12 +35,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,7 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,11 +61,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -91,7 +99,6 @@ fun ProfileScreen(
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -110,25 +117,73 @@ fun ProfileScreen(
         }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("Profile") },
+            CenterAlignedTopAppBar(
+                modifier = Modifier.statusBarsPadding(),
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Profile",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.4.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Identity, preferences and account control",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    Surface(
+                        onClick = onBack,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 2.dp,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 actions = {
-                    IconButton(
+                    Surface(
                         onClick = { showLogoutDialog = true },
-                        enabled = !uiState.isSaving
+                        enabled = !uiState.isSaving,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = "Logout"
-                        )
+                        Box(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Logout",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
-                }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background
+                )
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -143,44 +198,52 @@ fun ProfileScreen(
                 CircularProgressIndicator()
             }
         } else {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .verticalScroll(rememberScrollState())
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                ProfileHeroCard(
-                    user = uiState.user,
-                    isSaving = uiState.isSaving,
-                    onChangePhoto = { photoPickerLauncher.launch("image/*") }
-                )
+                item {
+                    ProfileHeroCard(
+                        user = uiState.user,
+                        isSaving = uiState.isSaving,
+                        onChangePhoto = { photoPickerLauncher.launch("image/*") }
+                    )
+                }
 
-                PersonalDetailsCard(
-                    user = uiState.user,
-                    onEditClick = { showEditDialog = true }
-                )
+                item {
+                    PersonalDetailsCard(
+                        user = uiState.user,
+                        onEditClick = { showEditDialog = true }
+                    )
+                }
 
-                PreferencesCard(
-                    autoTrackingEnabled = uiState.autoTrackingEnabled,
-                    smsPermissionGranted = uiState.smsPermissionGranted,
-                    smsPermissionDecided = uiState.smsPermissionDecided,
-                    lastSmsTimestamp = uiState.lastSmsTimestamp,
-                    onToggleAutoTracking = { checked ->
-                        if (checked && !uiState.smsPermissionGranted) {
-                            onOpenSmsPermission()
-                        } else {
-                            profileScreenVM.updateAutoTracking(checked)
-                        }
-                    },
-                    onManageSms = onOpenSmsPermission
-                )
+                item {
+                    PreferencesCard(
+                        autoTrackingEnabled = uiState.autoTrackingEnabled,
+                        smsPermissionGranted = uiState.smsPermissionGranted,
+                        smsPermissionDecided = uiState.smsPermissionDecided,
+                        lastSmsTimestamp = uiState.lastSmsTimestamp,
+                        onToggleAutoTracking = { checked ->
+                            if (checked && !uiState.smsPermissionGranted) {
+                                onOpenSmsPermission()
+                            } else {
+                                profileScreenVM.updateAutoTracking(checked)
+                            }
+                        },
+                        onManageSms = onOpenSmsPermission
+                    )
+                }
 
-                SecurityCard(
-                    onOpenSettings = onOpenSettings
-                )
+                item {
+                    SecurityCard(
+                        onOpenSettings = onOpenSettings
+                    )
+                }
             }
         }
     }
@@ -210,8 +273,15 @@ fun ProfileScreen(
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
-            title = { Text("Logout") },
-            text = { Text("Are you sure you want to log out of your account?") },
+            title = {
+                Text(
+                    text = "Logout",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text("Are you sure you want to log out of your account?")
+            },
             confirmButton = {
                 Button(
                     onClick = {
@@ -232,6 +302,175 @@ fun ProfileScreen(
 }
 
 @Composable
+private fun ProfileHeroCard(
+    user: UserProfileUi,
+    isSaving: Boolean,
+    onChangePhoto: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        )
+                    )
+                )
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clickable(enabled = !isSaving, onClick = onChangePhoto)
+                ) {
+                    if (user.photoUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = user.photoUrl,
+                            contentDescription = "Profile photo",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(40.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = user.name.ifBlank { "Your name" },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = if (user.username.isBlank()) "@username" else "@${user.username}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = user.phone.ifBlank { "Phone number not set" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                TextButton(
+                    onClick = onChangePhoto,
+                    enabled = !isSaving
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isSaving) "Updating photo..." else "Change photo")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalDetailsCard(
+    user: UserProfileUi,
+    onEditClick: () -> Unit
+) {
+    PremiumProfileSectionCard(
+        title = "Personal details",
+        subtitle = "Your account information and identity details",
+        icon = Icons.Default.Person,
+        action = {
+            TextButton(onClick = onEditClick) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Edit")
+            }
+        }
+    ) {
+        ProfileDetailItem(
+            label = "Username",
+            value = if (user.username.isBlank()) "Not set" else "@${user.username}",
+            icon = Icons.Default.Person
+        )
+        ProfileDetailItem(
+            label = "Phone",
+            value = user.phone,
+            icon = Icons.Default.PhoneAndroid
+        )
+        ProfileDetailItem(
+            label = "Email",
+            value = user.email,
+            icon = Icons.Default.VerifiedUser
+        )
+        ProfileDetailItem(
+            label = "City",
+            value = user.city,
+            icon = Icons.Default.Badge
+        )
+        ProfileDetailItem(
+            label = "State",
+            value = user.state,
+            icon = Icons.Default.Badge
+        )
+        ProfileDetailItem(
+            label = "Country",
+            value = user.country,
+            icon = Icons.Default.Badge
+        )
+        ProfileDetailItem(
+            label = "Date of birth",
+            value = user.dob,
+            icon = Icons.Default.Badge
+        )
+        ProfileDetailItem(
+            label = "Occupation",
+            value = user.occupation,
+            icon = Icons.Default.Badge
+        )
+    }
+}
+
+@Composable
 private fun PreferencesCard(
     autoTrackingEnabled: Boolean,
     smsPermissionGranted: Boolean,
@@ -240,78 +479,55 @@ private fun PreferencesCard(
     onToggleAutoTracking: (Boolean) -> Unit,
     onManageSms: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+    PremiumProfileSectionCard(
+        title = "Preferences",
+        subtitle = "Tracking, permissions and import activity",
+        icon = Icons.Default.PhoneAndroid
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "Preferences",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Tracking, permissions, and import activity",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        ProfileSettingTile(
+            title = "Automatic expense tracking",
+            subtitle = if (smsPermissionGranted) {
+                if (autoTrackingEnabled) {
+                    "Enabled for transaction import on app open or refresh"
+                } else {
+                    "Permission available, currently turned off"
+                }
+            } else {
+                "SMS permission not granted"
+            },
+            icon = Icons.Default.PhoneAndroid,
+            trailing = {
+                Switch(
+                    checked = autoTrackingEnabled,
+                    onCheckedChange = onToggleAutoTracking
                 )
             }
+        )
 
-            ProfileSettingTile(
-                title = "Automatic expense tracking",
-                subtitle = if (smsPermissionGranted) {
-                    if (autoTrackingEnabled) {
-                        "Enabled for transaction import on app open or refresh"
-                    } else {
-                        "Permission available, currently turned off"
-                    }
-                } else {
-                    "SMS permission not granted"
-                },
-                icon = Icons.Default.PhoneAndroid,
-                trailing = {
-                    Switch(
-                        checked = autoTrackingEnabled,
-                        onCheckedChange = onToggleAutoTracking
-                    )
+        ProfileSettingTile(
+            title = "SMS access",
+            subtitle = when {
+                smsPermissionGranted -> "Granted"
+                smsPermissionDecided -> "Not granted"
+                else -> "Not decided"
+            },
+            icon = Icons.Default.VerifiedUser,
+            trailing = {
+                TextButton(onClick = onManageSms) {
+                    Text("Manage")
                 }
-            )
+            }
+        )
 
-            ProfileSettingTile(
-                title = "SMS access",
-                subtitle = when {
-                    smsPermissionGranted -> "Granted"
-                    smsPermissionDecided -> "Not granted"
-                    else -> "Not decided"
-                },
-                icon = Icons.Default.VerifiedUser,
-                trailing = {
-                    TextButton(onClick = onManageSms) {
-                        Text("Manage")
-                    }
-                }
-            )
-
-            ProfileSettingTile(
-                title = "Last import activity",
-                subtitle = if (lastSmsTimestamp > 0L) {
-                    DateUtils.getRelativeTimeSpanString(lastSmsTimestamp).toString()
-                } else {
-                    "No import activity yet"
-                },
-                icon = Icons.Default.Badge
-            )
-        }
+        ProfileSettingTile(
+            title = "Last import activity",
+            subtitle = if (lastSmsTimestamp > 0L) {
+                DateUtils.getRelativeTimeSpanString(lastSmsTimestamp).toString()
+            } else {
+                "No import activity yet"
+            },
+            icon = Icons.Default.Badge
+        )
     }
 }
 
@@ -319,48 +535,91 @@ private fun PreferencesCard(
 private fun SecurityCard(
     onOpenSettings: () -> Unit
 ) {
+    PremiumProfileSectionCard(
+        title = "Security & privacy",
+        subtitle = "Account safety, sync and permission controls",
+        icon = Icons.Default.Lock
+    ) {
+        ProfileSettingTile(
+            title = "Account security",
+            subtitle = "Signed in and synced with your account",
+            icon = Icons.Default.Lock
+        )
+
+        ProfileSettingTile(
+            title = "App settings",
+            subtitle = "Privacy, permissions, sync and tracking controls",
+            icon = Icons.Default.Settings,
+            trailing = {
+                TextButton(onClick = onOpenSettings) {
+                    Text("Open")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PremiumProfileSectionCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    action: @Composable (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "Security & privacy",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Account safety, sync, and permission controls",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ProfileIconBubble(
+                        icon = icon,
+                        selected = true
+                    )
 
-            ProfileSettingTile(
-                title = "Account security",
-                subtitle = "Signed in and synced with your account",
-                icon = Icons.Default.Lock
-            )
-
-            ProfileSettingTile(
-                title = "App settings",
-                subtitle = "Privacy, permissions, sync, and tracking controls",
-                icon = Icons.Default.Settings,
-                trailing = {
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Open")
+                    Column {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
+
+                if (action != null) {
+                    action()
+                }
+            }
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            )
+
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
             )
         }
     }
@@ -426,81 +685,76 @@ private fun ProfileSettingTile(
 }
 
 @Composable
-private fun ProfileHeroCard(
-    user: UserProfileUi,
-    isSaving: Boolean,
-    onChangePhoto: () -> Unit
+private fun ProfileDetailItem(
+    label: String,
+    value: String,
+    icon: ImageVector
 ) {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                tonalElevation = 2.dp,
-                modifier = Modifier
-                    .size(96.dp)
-                    .clickable(enabled = !isSaving, onClick = onChangePhoto)
+            ProfileIconBubble(
+                icon = icon,
+                selected = true
+            )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                if (user.photoUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = user.photoUrl,
-                        contentDescription = "Profile photo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(38.dp),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = value.ifBlank { "Not set" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-
-            Text(
-                text = user.name.ifBlank { "Your name" },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Text(
-                text = if (user.username.isBlank()) "@username" else "@${user.username}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Text(
-                text = user.phone.ifBlank { "Phone number not set" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
+    }
+}
+
+@Composable
+private fun ProfileIconBubble(
+    icon: ImageVector,
+    selected: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .background(
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 
@@ -523,23 +777,98 @@ private fun EditProfileDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isSaving) onDismiss() },
-        title = { Text("Edit profile") },
+        title = {
+            Text(
+                text = "Edit profile",
+                fontWeight = FontWeight.Bold
+            )
+        },
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Username") }, singleLine = true)
-                OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, singleLine = true)
-                OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true)
-                OutlinedTextField(value = city, onValueChange = { city = it }, label = { Text("City") }, singleLine = true)
-                OutlinedTextField(value = state, onValueChange = { state = it }, label = { Text("State") }, singleLine = true)
-                OutlinedTextField(value = country, onValueChange = { country = it }, label = { Text("Country") }, singleLine = true)
-                OutlinedTextField(value = dob, onValueChange = { dob = it }, label = { Text("DOB") }, singleLine = true)
-                OutlinedTextField(value = occupation, onValueChange = { occupation = it }, label = { Text("Occupation") }, singleLine = true)
+                item {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("Username") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("Phone") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = city,
+                        onValueChange = { city = it },
+                        label = { Text("City") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = state,
+                        onValueChange = { state = it },
+                        label = { Text("State") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = country,
+                        onValueChange = { country = it },
+                        label = { Text("Country") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = dob,
+                        onValueChange = { dob = it },
+                        label = { Text("DOB") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = occupation,
+                        onValueChange = { occupation = it },
+                        label = { Text("Occupation") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
@@ -575,154 +904,3 @@ private fun EditProfileDialog(
         }
     )
 }
-
-@Composable
-private fun PersonalDetailsCard(
-    user: UserProfileUi,
-    onEditClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "Personal details",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Your account information and identity details",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                TextButton(onClick = onEditClick) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.size(6.dp))
-                    Text("Edit")
-                }
-            }
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ProfileDetailItem(
-                    label = "Username",
-                    value = if (user.username.isBlank()) "Not set" else "@${user.username}",
-                    icon = Icons.Default.Person
-                )
-                ProfileDetailItem(
-                    label = "Phone",
-                    value = user.phone,
-                    icon = Icons.Default.PhoneAndroid
-                )
-                ProfileDetailItem(
-                    label = "Email",
-                    value = user.email,
-                    icon = Icons.Default.VerifiedUser
-                )
-                ProfileDetailItem(
-                    label = "City",
-                    value = user.city,
-                    icon = Icons.Default.Badge
-                )
-                ProfileDetailItem(
-                    label = "State",
-                    value = user.state,
-                    icon = Icons.Default.Badge
-                )
-                ProfileDetailItem(
-                    label = "Country",
-                    value = user.country,
-                    icon = Icons.Default.Badge
-                )
-                ProfileDetailItem(
-                    label = "Date of birth",
-                    value = user.dob,
-                    icon = Icons.Default.Badge
-                )
-                ProfileDetailItem(
-                    label = "Occupation",
-                    value = user.occupation,
-                    icon = Icons.Default.Badge
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProfileDetailItem(
-    label: String,
-    value: String,
-    icon: ImageVector
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = value.ifBlank { "Not set" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-

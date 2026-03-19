@@ -100,7 +100,7 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
             }
             Log.d("ProfileVM", "claimUsername success for @$handle")
 
-            val profileData = mutableMapOf<String, Any>(
+            val profileData = mutableMapOf(
                 "uid" to user.uid,
                 "phone" to (user.phoneNumber ?: ""),
                 "name" to name,
@@ -131,6 +131,7 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                     viewModelScope.launch {
                         val res = firestore.upsertPublicUser(
                             username = handle,
+                            profilePicUrl = photoUrl ?: "",
                             city = city,
                             state = state,
                             country = "India",
