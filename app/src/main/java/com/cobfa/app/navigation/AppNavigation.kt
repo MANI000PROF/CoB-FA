@@ -39,6 +39,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cobfa.app.data.local.db.ExpenseDatabase
+import com.cobfa.app.ui.dashboard.DashboardViewModel
+import com.cobfa.app.ui.dashboard.DashboardViewModelFactory
 import com.cobfa.app.ui.profile.AccountInsightsScreen
 import com.cobfa.app.ui.profile.ProfileScreen
 
@@ -158,7 +160,22 @@ fun AppNavigation() {
 
         // Secondary routes (no bottom bar)
         composable("settings") {
-            SettingsScreen(navController)
+            val context = LocalContext.current
+
+            val parentEntry = remember(navController.currentBackStackEntry) {
+                try {
+                    navController.getBackStackEntry("main")
+                } catch (e: Exception) {
+                    navController.currentBackStackEntry!!
+                }
+            }
+
+            val dashboardViewModel: DashboardViewModel = viewModel(
+                parentEntry,
+                factory = DashboardViewModelFactory(context)
+            )
+
+            SettingsScreen(navController, dashboardViewModel)
         }
 
         composable("profile_view") {

@@ -2,6 +2,8 @@ package com.cobfa.app.ui.settings
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,19 +62,23 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.cobfa.app.ui.dashboard.DashboardViewModel
 import com.cobfa.app.utils.GamificationScheduler
 import com.cobfa.app.utils.PreferenceManager
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    navController: NavController
+    navController: NavController,
+    dashboardViewModel: DashboardViewModel
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     var autoTrackingEnabled by remember { mutableStateOf(false) }
     var smsGranted by remember { mutableStateOf(false) }
+    var triggerDebug by remember { mutableStateOf(false) }
 
     fun refreshState() {
         autoTrackingEnabled = PreferenceManager.isAutoTrackingEnabled(context)
@@ -82,7 +88,13 @@ fun SettingsScreen(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    LaunchedEffect(Unit) { refreshState() }
+    LaunchedEffect(Unit, triggerDebug) {
+        refreshState()
+        if (triggerDebug) {
+            snackbarHostState.showSnackbar("Synthetic history generated")
+            triggerDebug = false
+        }
+    }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -322,6 +334,46 @@ fun SettingsScreen(
                                 onClick = { GamificationScheduler.runNow(context) }
                             ) {
                                 Text("Run")
+                            }
+                        }
+                    )
+                }
+            }
+
+            item {
+                SettingsSectionCard(
+                    title = "Developer tools",
+                    icon = Icons.Default.AutoAwesome
+                ) {
+                    ListItem(
+                        colors = ListItemDefaults.colors(
+                            containerColor = Color.Transparent
+                        ),
+                        headlineContent = {
+                            Text(
+                                "Generate synthetic history",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                "Creates fake expenses for the past few weeks. Useful for testing insights, budgets and analytics."
+                            )
+                        },
+                        leadingContent = {
+                            SettingIconBubble(
+                                icon = Icons.Default.AutoAwesome,
+                                selected = false
+                            )
+                        },
+                        trailingContent = {
+                            TextButton(
+                                onClick = {
+                                    dashboardViewModel.debugGenerateHistory(24)
+                                    triggerDebug = true
+                                }
+                            ) {
+                                Text("Generate")
                             }
                         }
                     )
